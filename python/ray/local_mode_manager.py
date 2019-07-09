@@ -11,8 +11,9 @@ from ray.exceptions import RayTaskError
 
 
 class LocalModeObjectID(ObjectID):
-    """Wrapper class around ray.ObjectID used for local mode. Object values
-    are stored directly as a field of the LocalModeObjectID.
+    """Wrapper class around ray.ObjectID used for local mode.
+
+    Object values are stored directly as a field of the LocalModeObjectID.
 
     Attributes:
         value: Field that stores object values. If this field does not exist,
@@ -23,9 +24,7 @@ class LocalModeObjectID(ObjectID):
 
 
 class LocalModeManager(object):
-    """A class used by the worker process to emulate remote operations when
-    running in local mode.
-    """
+    """Used to emulate remote operations when running in local mode."""
 
     def __init__(self):
         """Initialize a LocalModeManager."""
@@ -99,8 +98,8 @@ class LocalModeManager(object):
         results = []
         for object_id in object_ids:
             if not isinstance(object_id, LocalModeObjectID):
-                raise TypeError("Only LocalModeObjectIDs are supported" +
-                                "when running in LOCAL_MODE. Using " +
+                raise TypeError("Only LocalModeObjectIDs are supported "
+                                "when running in LOCAL_MODE. Using "
                                 "user-generated ObjectIDs will fail.")
             if not hasattr(object_id, "value"):
                 raise KeyError("Value for {} not found".format(object_id))
@@ -122,8 +121,8 @@ class LocalModeManager(object):
         """
         for object_id in object_ids:
             if not isinstance(object_id, LocalModeObjectID):
-                raise TypeError("Only LocalModeObjectIDs are supported" +
-                                "when running in LOCAL_MODE. Using " +
+                raise TypeError("Only LocalModeObjectIDs are supported "
+                                "when running in LOCAL_MODE. Using "
                                 "user-generated ObjectIDs will fail.")
             try:
                 del object_id.value
