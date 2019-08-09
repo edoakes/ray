@@ -191,7 +191,6 @@ class RayletClient {
   const bool is_worker_;
   const JobID job_id_;
   const Language language_;
-  const int port_;
   /// A map from resource name to the resource IDs that are currently reserved
   /// for this worker. Each pair consists of the resource ID and the fraction
   /// of that resource allocated for this worker.

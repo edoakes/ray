@@ -207,8 +207,7 @@ RayletClient::RayletClient(const std::string &raylet_socket, const ClientID &cli
     : client_id_(client_id),
       is_worker_(is_worker),
       job_id_(job_id),
-      language_(language),
-      port_(port) {
+      language_(language) {
   // For C++14, we could use std::make_unique
   conn_ = std::unique_ptr<RayletConnection>(new RayletConnection(raylet_socket, -1, -1));
 
