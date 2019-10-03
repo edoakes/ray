@@ -38,10 +38,10 @@ CoreWorker::CoreWorker(
 
   boost::asio::signal_set sigterm(io_service_, SIGTERM);
   sigterm.async_wait(
-      [this](const boost::system::error_code &error, int signal_number) -> void {
+      [](const boost::system::error_code &error, int signal_number) -> void {
         if (!error) {
-          RAY_LOG(WARNING) << "Got SIGTERM " << signal_number << ", shutting down.";
-          io_service_.stop();
+          RAY_LOG(WARNING) << "Got SIGTERM, shutting down.";
+          exit(signal_number);
         }
       });
 
