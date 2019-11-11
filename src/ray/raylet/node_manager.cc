@@ -691,7 +691,18 @@ void NodeManager::HeartbeatBatchAdded(const HeartbeatBatchTableData &heartbeat_b
     }
     HeartbeatAdded(client_id, heartbeat_data);
   }
+
   RAY_LOG(DEBUG) << "Total active object IDs received: " << active_object_ids.size();
+
+  // Refresh the active object IDs in plasma to prevent them from being evicted.
+  std::vector<plasma::ObjectID> plasma_ids;
+  plasma_ids.reserve(active_object_ids.size());
+  for (const ObjectID &object_id : active_object_ids) {
+    plasma_ids.push_back(object_id.ToPlasmaId());
+  }
+  if (!store_client_.Refresh(plasma_ids).ok()) {
+    RAY_LOG(WARNING) << "Failed to refresh active object IDs in plasma.";
+  }
 }
 
 void NodeManager::HandleActorStateTransition(const ActorID &actor_id,
@@ -1560,7 +1571,7 @@ void NodeManager::TreatTaskAsFailed(const Task &task, const ErrorType &error_typ
   // Determine which IDs should be marked as failed.
   std::vector<plasma::ObjectID> objects_to_fail;
   for (int64_t i = 0; i < num_returns; i++) {
-    objects_to_fail.push_back(spec.ReturnId(i).ToPlasmaId());
+    objects_to_fail.push_back(spec.ReturnId(i, TaskTransportType::RAYLET).ToPlasmaId());
   }
   const JobID job_id = task.GetTaskSpecification().JobId();
   MarkObjectsAsFailed(error_type, objects_to_fail, job_id);
@@ -1611,7 +1622,7 @@ void NodeManager::TreatTaskAsFailedIfLost(const Task &task) {
   // lookup callbacks are fired.
   auto task_marked_as_failed = std::make_shared<bool>(false);
   for (int64_t i = 0; i < num_returns; i++) {
-    const ObjectID object_id = spec.ReturnId(i);
+    const ObjectID object_id = spec.ReturnId(i, TaskTransportType::RAYLET);
     // Lookup the return value's locations.
     RAY_CHECK_OK(object_directory_->LookupLocations(
         object_id, [this, task_marked_as_failed, task](
