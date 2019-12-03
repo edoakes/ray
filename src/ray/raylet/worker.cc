@@ -137,6 +137,8 @@ Status Worker::AssignTask(const Task &task, const ResourceIdSet &resource_id_set
       task.GetTaskExecutionSpec().GetMessage());
   request.set_resource_ids(resource_id_set.Serialize());
 
+  RAY_LOG(INFO) << "Assigning task: " << task.GetTaskSpecification().DebugString() << " to worker with pid "
+                 << pid_;
   return rpc_client_->AssignTask(request, [](Status status,
                                              const rpc::AssignTaskReply &reply) {
     if (!status.ok()) {

@@ -19,6 +19,7 @@ void CoreWorkerRayletTaskReceiver::HandleAssignTask(
   const auto &task_spec = task.GetTaskSpecification();
   RAY_LOG(DEBUG) << "Received task " << task_spec.TaskId() << " is create "
                  << task_spec.IsActorCreationTask();
+  RAY_LOG(INFO) << "Received task: " << task_spec.DebugString();
 
   // Set the resource IDs for this task.
   // TODO: convert the resource map to protobuf and change this.
