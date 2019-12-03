@@ -141,6 +141,8 @@ CoreWorker::CoreWorker(const WorkerType worker_type, const Language language,
   rpc_address_.set_port(core_worker_server_.GetPort());
   rpc_address_.set_raylet_id(raylet_id.Binary());
 
+  RAY_LOG(INFO) << "Worker started; id: " << worker_context_.GetWorkerID() << ", port: " << core_worker_server_.GetPort();
+
   // Set timer to periodically send heartbeats containing active object IDs to the raylet.
   // If the heartbeat timeout is < 0, the heartbeats are disabled.
   if (RayConfig::instance().worker_heartbeat_timeout_milliseconds() >= 0) {
