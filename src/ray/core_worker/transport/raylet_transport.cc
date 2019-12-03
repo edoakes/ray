@@ -6,15 +6,24 @@
 namespace ray {
 
 CoreWorkerRayletTaskReceiver::CoreWorkerRayletTaskReceiver(
+    WorkerID worker_id,
     std::shared_ptr<RayletClient> &raylet_client, const TaskHandler &task_handler,
     const std::function<void()> &exit_handler)
-    : raylet_client_(raylet_client),
+    : worker_id_(worker_id),
+    raylet_client_(raylet_client),
       task_handler_(task_handler),
       exit_handler_(exit_handler) {}
 
 void CoreWorkerRayletTaskReceiver::HandleAssignTask(
     const rpc::AssignTaskRequest &request, rpc::AssignTaskReply *reply,
     rpc::SendReplyCallback send_reply_callback) {
+  WorkerID intended_worker_id = WorkerID::FromBinary(request.worker_id());
+  if (intended_worker_id != worker_id_) {
+    RAY_LOG(WARNING) << "Received task for mismatched WorkerID " << intended_worker_id << ", dropping the message";
+    send_reply_callback(Status::Invalid("Mismatched WorkerID"), nullptr, nullptr);
+    return;
+  }
+  
   const Task task(request.task());
   const auto &task_spec = task.GetTaskSpecification();
   RAY_LOG(DEBUG) << "Received task " << task_spec.TaskId() << " is create "
