@@ -1083,7 +1083,6 @@ void NodeManager::HandleWorkerAvailable(const std::shared_ptr<Worker> &worker) {
   cluster_resource_map_[local_client_id].SetLoadResources(
       local_queues_.GetResourceLoad());
   // Call task dispatch to assign work to the new worker.
-  RAY_LOG(INFO) << "DispatchTasks() from HandleWorkerAvailable";
   DispatchTasks(local_queues_.GetReadyTasksByClass());
 }
 
@@ -1094,6 +1093,7 @@ void NodeManager::ProcessDisconnectClientMessage(
   if (worker) {
     // The client is a worker.
     is_worker = true;
+    RAY_LOG(INFO) << "Disconnect from worker: " << worker->WorkerId();
   } else {
     worker = worker_pool_.GetRegisteredDriver(client);
     if (worker) {
@@ -1191,7 +1191,6 @@ void NodeManager::ProcessDisconnectClientMessage(
                    << "job_id: " << worker->GetAssignedJobId();
 
     // Since some resources may have been released, we can try to dispatch more tasks.
-    RAY_LOG(INFO) << "DispatchTasks() from ProcessClientDisconnect";
     DispatchTasks(local_queues_.GetReadyTasksByClass());
   } else if (is_driver) {
     // The client is a driver.
@@ -1881,7 +1880,6 @@ void NodeManager::HandleDirectCallTaskBlocked(const std::shared_ptr<Worker> &wor
   cluster_resource_map_[gcs_client_->client_table().GetLocalClientId()].Release(
       cpu_resource_ids.ToResourceSet());
   worker->MarkBlocked();
-  RAY_LOG(INFO) << "DispatchTasks() from HandleDirectCallTaskBlocked";
   DispatchTasks(local_queues_.GetReadyTasksByClass());
 }
 
@@ -1937,7 +1935,6 @@ void NodeManager::HandleTaskBlocked(const std::shared_ptr<LocalClientConnection>
       worker->MarkBlocked();
 
       // Try dispatching tasks since we may have released some resources.
-      RAY_LOG(INFO) << "DispatchTasks() from HandleTaskBlocked";
       DispatchTasks(local_queues_.GetReadyTasksByClass());
     }
   } else {
@@ -2038,7 +2035,6 @@ void NodeManager::EnqueuePlaceableTask(const Task &task) {
   // (See design_docs/task_states.rst for the state transition diagram.)
   if (args_ready) {
     local_queues_.QueueTasks({task}, TaskState::READY);
-    RAY_LOG(INFO) << "DispatchTasks() from EnqueuePlaceableTask";
     DispatchTasks(MakeTasksByClass({task}));
   } else {
     local_queues_.QueueTasks({task}, TaskState::WAITING);
@@ -2475,7 +2471,6 @@ void NodeManager::HandleObjectLocal(const ObjectID &object_id) {
     // Queue and dispatch the tasks that are ready to run (i.e., WAITING).
     auto ready_tasks = local_queues_.RemoveTasks(ready_task_id_set);
     local_queues_.QueueTasks(ready_tasks, TaskState::READY);
-    RAY_LOG(INFO) << "DispatchTasks() from HandleObjectLocal";
     DispatchTasks(MakeTasksByClass(ready_tasks));
   }
 }
