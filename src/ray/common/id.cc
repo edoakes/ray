@@ -41,13 +41,13 @@ std::string GenerateUniqueBytes(const JobID &job_id, const TaskID &parent_task_i
 namespace {
 
 /// The bit offset of the flag `CreatedByTask` in a flags bytes.
-constexpr uint8_t kCreatedByTaskBitsOffset = 15;
+constexpr uint8_t kCreatedByTaskBitsOffset = 7;
 
 /// The bit offset of the flag `ObjectType` in a flags bytes.
-constexpr uint8_t kObjectTypeBitsOffset = 14;
+constexpr uint8_t kObjectTypeBitsOffset = 6;
 
 /// The bit offset of the flag `TransportType` in a flags bytes.
-constexpr uint8_t kTransportTypeBitsOffset = 11;
+constexpr uint8_t kTransportTypeBitsOffset = 3;
 
 /// The mask that is used to mask the flag `CreatedByTask`.
 constexpr ObjectIDFlagsType kCreatedByTaskFlagBitMask = 0x1 << kCreatedByTaskBitsOffset;

@@ -40,7 +40,7 @@ enum class ObjectType : uint8_t {
   RETURN_OBJECT = 0x1,
 };
 
-using ObjectIDFlagsType = uint16_t;
+using ObjectIDFlagsType = uint8_t;
 using ObjectIDIndexType = uint32_t;
 
 // Declaration.
@@ -99,7 +99,7 @@ class UniqueID : public BaseID<UniqueID> {
 
 class JobID : public BaseID<JobID> {
  public:
-  static constexpr int64_t kLength = 2;
+  static constexpr int64_t kLength = 3;
 
   static JobID FromInt(uint16_t value);
 
