@@ -16,18 +16,24 @@ torch_version="$TORCH_VERSION"
 if [[ torch_version == "" ]]; then torch_version="1.4"; fi
 echo "torch_version is $torch_version"
 
-platform="unknown"
-unamestr="$(uname)"
-if [[ "$unamestr" == "Linux" ]]; then
-  echo "Platform is linux."
-  platform="linux"
-elif [[ "$unamestr" == "Darwin" ]]; then
-  echo "Platform is macosx."
-  platform="macosx"
-else
+platform=""
+case "${OSTYPE}" in
+  linux*)
+    platform="linux"
+    ;;
+  darwin*)
+    platform="macosx"
+    ;;
+  msys*)
+    platform="win32"
+    ;;
+esac
+if [ -z "$platform" ]; then
   echo "Unrecognized platform."
   exit 1
 fi
+
+echo "Platform is $platform."
 
 # Upgrade pip and other packages to avoid incompatibility ERRORS.
 pip install --upgrade pip # setuptools cloudpickle urllib3
@@ -42,7 +48,7 @@ fi
 
 if [[ "$PYTHON" == "3.6" ]] && [[ "$platform" == "linux" ]]; then
   sudo apt-get update
-  sudo apt-get install -y python-dev python-numpy build-essential curl unzip tmux gdb libunwind-dev
+  sudo apt-get install -y build-essential curl unzip tmux gdb libunwind-dev
   # Install miniconda.
   wget -q https://repo.continuum.io/miniconda/Miniconda3-4.5.4-Linux-x86_64.sh -O miniconda.sh -nv
   bash miniconda.sh -b -p $HOME/miniconda
@@ -51,7 +57,7 @@ if [[ "$PYTHON" == "3.6" ]] && [[ "$platform" == "linux" ]]; then
   pip install scipy tensorflow==$tf_version \
     cython==0.29.0 gym \
     opencv-python-headless pyyaml pandas==0.24.2 requests \
-    feather-format lxml openpyxl xlrd py-spy pytest-timeout networkx tabulate aiohttp \
+    feather-format lxml openpyxl xlrd py-spy pytest pytest-timeout networkx tabulate aiohttp \
     uvicorn dataclasses pygments werkzeug kubernetes flask grpcio pytest-sugar pytest-rerunfailures pytest-asyncio \
     blist scikit-learn numba
 elif [[ "$PYTHON" == "3.6" ]] && [[ "$platform" == "macosx" ]]; then
@@ -62,7 +68,7 @@ elif [[ "$PYTHON" == "3.6" ]] && [[ "$platform" == "macosx" ]]; then
   pip install scipy tensorflow==$tf_version \
     cython==0.29.0 gym \
     opencv-python-headless pyyaml pandas==0.24.2 requests \
-    feather-format lxml openpyxl xlrd py-spy pytest-timeout networkx tabulate aiohttp \
+    feather-format lxml openpyxl xlrd py-spy pytest pytest-timeout networkx tabulate aiohttp \
     uvicorn dataclasses pygments werkzeug kubernetes flask grpcio pytest-sugar pytest-rerunfailures pytest-asyncio \
     blist scikit-learn numba
 elif [[ "$LINT" == "1" ]]; then

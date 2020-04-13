@@ -19,10 +19,6 @@
 
 namespace ray {
 
-static std::string redis_server_executable;
-static std::string redis_client_executable;
-static std::string libray_redis_module_path;
-
 class GcsServerTest : public RedisServiceManagerForTest {
  public:
   void SetUp() override {
@@ -410,6 +406,8 @@ class GcsServerTest : public RedisServiceManagerForTest {
   rpc::GcsNodeInfo GenGcsNodeInfo(const std::string &node_id) {
     rpc::GcsNodeInfo gcs_node_info;
     gcs_node_info.set_node_id(node_id);
+    gcs_node_info.set_node_manager_address("127.0.0.1");
+    gcs_node_info.set_node_manager_port(6000);
     gcs_node_info.set_state(rpc::GcsNodeInfo_GcsNodeState_ALIVE);
     return gcs_node_info;
   }

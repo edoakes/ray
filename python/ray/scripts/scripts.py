@@ -394,7 +394,7 @@ def start(node_ip_address, redis_address, address, redis_port,
             raise Exception("If --head is not passed in, --redis-shard-ports "
                             "is not allowed.")
         if redis_address is None:
-            raise Exception("If --head is not passed in, --redis-address must "
+            raise Exception("If --head is not passed in, --address must "
                             "be provided.")
         if num_redis_shards is not None:
             raise Exception("If --head is not passed in, --num-redis-shards "
@@ -485,7 +485,7 @@ def stop(force, verbose):
         ["redis-server", False],
         ["default_worker.py", False],  # Python worker.
         ["ray::", True],  # Python worker.
-        ["org.ray.runtime.runner.worker.DefaultWorker", False],  # Java worker.
+        ["io.ray.runtime.runner.worker.DefaultWorker", False],  # Java worker.
         ["log_monitor.py", False],
         ["reporter.py", False],
         ["dashboard.py", False],
