@@ -96,9 +96,9 @@ worker_setup_commands: []
 # Command to start ray on the head node. You don't need to change this.
 head_start_ray_commands:
     - source activate tensorflow_p36 && ray stop
-    - ray start --head --redis-port=6379 --object-manager-port=8076 --autoscaling-config=~/ray_bootstrap_config.yaml --num-cpus=0 --internal-config="{\"record_ref_creation_sites\":0, \"max_direct_call_object_size\":10737418240}"
+    - ray start --head --redis-port=6379 --object-manager-port=8076 --autoscaling-config=~/ray_bootstrap_config.yaml --num-cpus=0 --internal-config="{\"record_ref_creation_sites\":0, \"max_direct_call_object_size\":10737418240, \"max_grpc_message_size\":10737418240}"
 
 # Command to start ray on worker nodes. You don't need to change this.
 worker_start_ray_commands:
     - source activate tensorflow_p36 && ray stop
-    - ray start --address=$RAY_HEAD_IP:6379 --object-manager-port=8076 --internal-config="{\"record_ref_creation_sites\":0, \"max_direct_call_object_size\":10737418240}"
+    - ray start --address=$RAY_HEAD_IP:6379 --object-manager-port=8076 --internal-config="{\"record_ref_creation_sites\":0, \"max_direct_call_object_size\":10737418240, \"max_grpc_message_size\":10737418240}
