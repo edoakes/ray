@@ -76,6 +76,14 @@ class GcsClient : public std::enable_shared_from_this<GcsClient> {
   /// Disconnect with GCS Service. Non-thread safe.
   virtual void Disconnect() = 0;
 
+  /// Only used for the centralized experiment.
+  virtual Status IncrementReference(const ObjectID &object_id, const StatusCallback &callback) {
+    return Status::NotImplemented("");
+  }
+  virtual Status DecrementReference(const ObjectID &object_id, const StatusCallback &callback) {
+    return Status::NotImplemented("");
+  }
+
   /// Return client information for debug.
   virtual std::string DebugString() const { return ""; }
 

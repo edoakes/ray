@@ -1110,9 +1110,27 @@ void CoreWorker::SubmitTask(const RayFunction &function, const std::vector<TaskA
   } else {
     task_manager_->AddPendingTask(GetCallerId(), rpc_address_, task_spec,
                                   CurrentCallSite(), max_retries);
-    io_service_.post([this, task_spec]() {
-      RAY_UNUSED(direct_task_submitter_->SubmitTask(task_spec));
-    });
+
+    if (RayConfig::instance().centralized_owner()) {
+      std::shared_ptr<gcs::TaskTableData> data = std::make_shared<gcs::TaskTableData>();
+      data->mutable_task()->mutable_task_spec()->CopyFrom(task_spec.GetMessage());
+      RAY_CHECK_OK(gcs_client_->Tasks().AsyncAdd(data, [this, task_spec](const Status &status) {
+          auto num_ids_left = std::make_shared<int>();
+          const auto dependencies = task_spec.GetDependencies();
+          for (auto &dependency : dependencies) {
+            RAY_CHECK_OK(gcs_client_->IncrementReference(dependency, [this, task_spec, num_ids_left](const Status &status) {
+                  *num_ids_left -= 1;
+                  if (*num_ids_left == 0) {
+                    RAY_UNUSED(direct_task_submitter_->SubmitTask(task_spec));
+                  }
+                  }));
+          }
+      }));
+    } else {
+      io_service_.post([this, task_spec]() {
+        RAY_UNUSED(direct_task_submitter_->SubmitTask(task_spec));
+      });
+    }
   }
 }
 
@@ -1200,7 +1218,24 @@ Status CoreWorker::SubmitActorTask(const ActorID &actor_id, const RayFunction &f
       task_manager_->PendingTaskFailed(task_spec.TaskId(), rpc::ErrorType::ACTOR_DIED,
                                        &status);
     } else {
-      status = direct_actor_submitter_->SubmitTask(task_spec);
+      if (RayConfig::instance().centralized_owner()) {
+        std::shared_ptr<gcs::TaskTableData> data = std::make_shared<gcs::TaskTableData>();
+        data->mutable_task()->mutable_task_spec()->CopyFrom(task_spec.GetMessage());
+        RAY_CHECK_OK(gcs_client_->Tasks().AsyncAdd(data, [this, task_spec](const Status &status) {
+            auto num_ids_left = std::make_shared<int>();
+            const auto dependencies = task_spec.GetDependencies();
+            for (auto &dependency : dependencies) {
+              RAY_CHECK_OK(gcs_client_->IncrementReference(dependency, [this, task_spec, num_ids_left](const Status &status) {
+                    *num_ids_left -= 1;
+                    if (*num_ids_left == 0) {
+                      RAY_UNUSED(direct_actor_submitter_->SubmitTask(task_spec));
+                    }
+                    }));
+            }
+        }));
+      } else {
+        status = (direct_actor_submitter_->SubmitTask(task_spec));
+      }
     }
   }
   return status;

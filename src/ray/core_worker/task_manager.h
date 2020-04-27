@@ -156,16 +156,12 @@ class TaskManager : public TaskFinisherInterface, public TaskResubmissionInterfa
 
  private:
   /// XXX: Centralized.
-  void MaybeWriteTaskSpecToGcs(const TaskSpecification &spec)
-      EXCLUSIVE_LOCKS_REQUIRED(mu_);
-
-  /// XXX: Centralized.
-  void MaybeIncrementGcsRefcounts(const std::vector<ObjectID> &object_ids)
-      EXCLUSIVE_LOCKS_REQUIRED(mu_);
-
-  /// XXX: Centralized.
   void MaybeDecrementGcsRefcounts(const std::vector<ObjectID> &object_ids)
       LOCKS_EXCLUDED(mu_);
+
+  /// XXX: Centralized.
+  void CompletePendingTaskInternal(const TaskID &task_id, const rpc::PushTaskReply &reply,
+                           const rpc::Address &worker_addr);
 
   struct TaskEntry {
     TaskEntry(const TaskSpecification &spec_arg, int num_retries_left_arg,

@@ -24,30 +24,10 @@ const int64_t kTaskFailureThrottlingThreshold = 50;
 // Throttle task failure logs to once this interval.
 const int64_t kTaskFailureLoggingFrequencyMillis = 5000;
 
-void TaskManager::MaybeWriteTaskSpecToGcs(const TaskSpecification &spec) {
-  // Use gcs_client_ as feature flag.
+void TaskManager::MaybeDecrementGcsRefcounts(const std::vector<ObjectID> &dependencies) {
   if (gcs_client_) {
-    std::shared_ptr<gcs::TaskTableData> data = std::make_shared<gcs::TaskTableData>();
-    data->mutable_task()->mutable_task_spec()->CopyFrom(spec.GetMessage());
-    RAY_CHECK_OK(gcs_client_->Tasks().SyncAdd(data));
-  }
-}
-
-void TaskManager::MaybeIncrementGcsRefcounts(const std::vector<ObjectID> &object_ids) {
-  // Use gcs_client_ as feature flag.
-  if (gcs_client_) {
-    std::vector<int64_t> new_vals =
-        gcs_client_->primary_context()->IncrPipelineSync(object_ids);
-  }
-}
-
-void TaskManager::MaybeDecrementGcsRefcounts(const std::vector<ObjectID> &object_ids) {
-  {
-    absl::MutexLock lock(&mu_);
-    // Use gcs_client_ as feature flag.
-    if (gcs_client_) {
-      std::vector<int64_t> new_vals =
-          gcs_client_->primary_context()->DecrPipelineSync(object_ids);
+    for (auto &dependency : dependencies) {
+      RAY_CHECK_OK(gcs_client_->DecrementReference(dependency, nullptr));
     }
   }
 }
@@ -103,13 +83,6 @@ void TaskManager::AddPendingTask(const TaskID &caller_id,
                   .emplace(spec.TaskId(), TaskEntry(spec, max_retries, num_returns))
                   .second);
     num_pending_tasks_++;
-  }
-
-  {
-    absl::MutexLock lock(&mu_);
-    // XXX: Centralized.
-    MaybeWriteTaskSpecToGcs(spec);
-    MaybeIncrementGcsRefcounts(task_deps);
   }
 }
 
@@ -204,7 +177,28 @@ void TaskManager::CompletePendingTask(const TaskID &task_id,
                                       const rpc::PushTaskReply &reply,
                                       const rpc::Address &worker_addr) {
   RAY_LOG(DEBUG) << "Completing task " << task_id;
+  if (gcs_client_) {
+    TaskSpecification spec;
+    {
+      absl::MutexLock lock(&mu_);
+      auto it = submissible_tasks_.find(task_id);
+      RAY_CHECK(it != submissible_tasks_.end())
+          << "Tried to complete task that was not pending " << task_id;
+      spec = it->second.spec;
+    }
+    std::shared_ptr<gcs::TaskTableData> data = std::make_shared<gcs::TaskTableData>();
+    data->mutable_task()->mutable_task_spec()->CopyFrom(spec.GetMessage());
+    RAY_CHECK_OK(gcs_client_->Tasks().AsyncAdd(data, [this, task_id, reply, worker_addr](const Status &status) {
+          CompletePendingTaskInternal(task_id, reply, worker_addr);
+    }));
+  } else {
+    CompletePendingTaskInternal(task_id, reply, worker_addr);
+  }
+}
 
+void TaskManager::CompletePendingTaskInternal(const TaskID &task_id,
+                                      const rpc::PushTaskReply &reply,
+                                      const rpc::Address &worker_addr) {
   std::vector<ObjectID> direct_return_ids;
   std::vector<ObjectID> plasma_return_ids;
   for (int i = 0; i < reply.return_objects_size(); i++) {
@@ -284,11 +278,6 @@ void TaskManager::CompletePendingTask(const TaskID &task_id,
     }
   }
 
-  // XXX: Centralized.
-  {
-    absl::MutexLock lock(&mu_);
-    MaybeWriteTaskSpecToGcs(spec);
-  }
   RemoveFinishedTaskReferences(spec, release_lineage, worker_addr, reply.borrowed_refs());
 
   ShutdownIfNeeded();
@@ -320,9 +309,6 @@ void TaskManager::PendingTaskFailed(const TaskID &task_id, rpc::ErrorType error_
       it->second.num_retries_left--;
       release_lineage = false;
     }
-
-    // XXX: Centralized.
-    MaybeWriteTaskSpecToGcs(spec);
   }
 
   // We should not hold the lock during these calls because they may trigger

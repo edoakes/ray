@@ -61,6 +61,28 @@ class RAY_EXPORT RedisGcsClient : public GcsClient {
   /// Disconnect with GCS Service. Non-thread safe.
   void Disconnect() override;
 
+  Status IncrementReference(const ObjectID &object_id, const StatusCallback &callback) {
+    auto contexts = shard_contexts();
+    static std::hash<ObjectID> index;
+    auto &context = contexts[index(object_id) % contexts.size()];
+    context->RunArgvAsync({"INCR", object_id.Binary()}, [callback](std::shared_ptr<CallbackReply> reply) {
+        if (callback) {
+          callback(Status::OK());
+        }
+        });
+  }
+
+  Status DecrementReference(const ObjectID &object_id, const StatusCallback &callback) {
+    auto contexts = shard_contexts();
+    static std::hash<ObjectID> index;
+    auto &context = contexts[index(object_id) % contexts.size()];
+    context->RunArgvAsync({"DECR", object_id.Binary()}, [callback](std::shared_ptr<CallbackReply> reply) {
+        if (callback) {
+          callback(Status::OK());
+        }
+        });
+  }
+
   /// Returns debug string for class.
   ///
   /// \return string.
