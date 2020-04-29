@@ -62,25 +62,25 @@ class RAY_EXPORT RedisGcsClient : public GcsClient {
   void Disconnect() override;
 
   Status IncrementReference(const ObjectID &object_id, const StatusCallback &callback) {
-    auto contexts = shard_contexts();
-    static std::hash<ObjectID> index;
-    auto &context = contexts[index(object_id) % contexts.size()];
-    context->RunArgvAsync({"INCR", object_id.Binary()}, [callback](std::shared_ptr<CallbackReply> reply) {
-        if (callback) {
-          callback(Status::OK());
-        }
-        });
+    auto context = redis_client_->GetShardContext(object_id.Binary());
+    return context->RunArgvAsync({"INCR", object_id.Binary()},
+                                 [callback](std::shared_ptr<CallbackReply> reply) {
+                                   RAY_CHECK(reply->ReadAsInteger() > 0);
+                                   if (callback) {
+                                     callback(Status::OK());
+                                   }
+                                 });
   }
 
   Status DecrementReference(const ObjectID &object_id, const StatusCallback &callback) {
-    auto contexts = shard_contexts();
-    static std::hash<ObjectID> index;
-    auto &context = contexts[index(object_id) % contexts.size()];
-    context->RunArgvAsync({"DECR", object_id.Binary()}, [callback](std::shared_ptr<CallbackReply> reply) {
-        if (callback) {
-          callback(Status::OK());
-        }
-        });
+    auto context = redis_client_->GetShardContext(object_id.Binary());
+    return context->RunArgvAsync({"DECR", object_id.Binary()},
+                                 [callback](std::shared_ptr<CallbackReply> reply) {
+                                   RAY_CHECK(reply->ReadAsInteger() >= 0);
+                                   if (callback) {
+                                     callback(Status::OK());
+                                   }
+                                 });
   }
 
   /// Returns debug string for class.

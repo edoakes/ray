@@ -379,8 +379,7 @@ CoreWorker::CoreWorker(const CoreWorkerOptions &options, const WorkerID &worker_
           RAY_CHECK_OK(direct_task_submitter_->SubmitTask(spec));
         }
       },
-      RayConfig::instance().centralized_owner() ? gcs_client_ : nullptr
-      ));
+      RayConfig::instance().centralized_owner() ? gcs_client_ : nullptr));
 
   // Create an entry for the driver task in the task table. This task is
   // added immediately with status RUNNING. This allows us to push errors
@@ -1114,18 +1113,24 @@ void CoreWorker::SubmitTask(const RayFunction &function, const std::vector<TaskA
     if (RayConfig::instance().centralized_owner()) {
       std::shared_ptr<gcs::TaskTableData> data = std::make_shared<gcs::TaskTableData>();
       data->mutable_task()->mutable_task_spec()->CopyFrom(task_spec.GetMessage());
-      RAY_CHECK_OK(gcs_client_->Tasks().AsyncAdd(data, [this, task_spec](const Status &status) {
-          auto num_ids_left = std::make_shared<int>();
-          const auto dependencies = task_spec.GetDependencies();
-          for (auto &dependency : dependencies) {
-            RAY_CHECK_OK(gcs_client_->IncrementReference(dependency, [this, task_spec, num_ids_left](const Status &status) {
-                  *num_ids_left -= 1;
-                  if (*num_ids_left == 0) {
-                    RAY_UNUSED(direct_task_submitter_->SubmitTask(task_spec));
-                  }
-                  }));
-          }
-      }));
+      RAY_CHECK_OK(
+          gcs_client_->Tasks().AsyncAdd(data, [this, task_spec](const Status &status) {
+            const auto dependencies = task_spec.GetDependencies();
+            if (dependencies.size() == 0) {
+              RAY_UNUSED(direct_task_submitter_->SubmitTask(task_spec));
+            } else {
+              auto num_ids_left = std::make_shared<int>(dependencies.size());
+              for (auto &dependency : dependencies) {
+                RAY_CHECK_OK(gcs_client_->IncrementReference(
+                    dependency, [this, task_spec, num_ids_left](const Status &status) {
+                      *num_ids_left -= 1;
+                      if (*num_ids_left == 0) {
+                        RAY_UNUSED(direct_task_submitter_->SubmitTask(task_spec));
+                      }
+                    }));
+              }
+            }
+          }));
     } else {
       io_service_.post([this, task_spec]() {
         RAY_UNUSED(direct_task_submitter_->SubmitTask(task_spec));
@@ -1221,20 +1226,27 @@ Status CoreWorker::SubmitActorTask(const ActorID &actor_id, const RayFunction &f
       if (RayConfig::instance().centralized_owner()) {
         std::shared_ptr<gcs::TaskTableData> data = std::make_shared<gcs::TaskTableData>();
         data->mutable_task()->mutable_task_spec()->CopyFrom(task_spec.GetMessage());
-        RAY_CHECK_OK(gcs_client_->Tasks().AsyncAdd(data, [this, task_spec](const Status &status) {
-            auto num_ids_left = std::make_shared<int>();
-            const auto dependencies = task_spec.GetDependencies();
-            for (auto &dependency : dependencies) {
-              RAY_CHECK_OK(gcs_client_->IncrementReference(dependency, [this, task_spec, num_ids_left](const Status &status) {
-                    *num_ids_left -= 1;
-                    if (*num_ids_left == 0) {
-                      RAY_UNUSED(direct_actor_submitter_->SubmitTask(task_spec));
-                    }
-                    }));
-            }
-        }));
+        RAY_CHECK_OK(
+            gcs_client_->Tasks().AsyncAdd(data, [this, task_spec](const Status &status) {
+              const auto dependencies = task_spec.GetDependencies();
+              if (dependencies.size() == 0) {
+                RAY_UNUSED(direct_actor_submitter_->SubmitTask(task_spec));
+              } else {
+                auto num_ids_left = std::make_shared<int>(dependencies.size());
+                for (auto &dependency : dependencies) {
+                  RAY_CHECK_OK(gcs_client_->IncrementReference(
+                      dependency, [this, task_spec, num_ids_left](const Status &status) {
+                        RAY_CHECK_OK(status);
+                        *num_ids_left -= 1;
+                        if (*num_ids_left == 0) {
+                          RAY_UNUSED(direct_actor_submitter_->SubmitTask(task_spec));
+                        }
+                      }));
+                }
+              }
+            }));
       } else {
-        status = (direct_actor_submitter_->SubmitTask(task_spec));
+        status = direct_actor_submitter_->SubmitTask(task_spec);
       }
     }
   }
