@@ -182,8 +182,9 @@ void CoreWorkerDirectTaskSubmitter::RequestNewWorkerIfNeeded(
   TaskID task_id = resource_spec.TaskId();
   RAY_LOG(DEBUG) << "Lease requested " << task_id;
   RAY_UNUSED(lease_client->RequestWorkerLease(
-      resource_spec, [this, scheduling_key, task_id](const Status &status,
-                                            const rpc::RequestWorkerLeaseReply &reply) {
+      resource_spec,
+      [this, scheduling_key, task_id](const Status &status,
+                                      const rpc::RequestWorkerLeaseReply &reply) {
         RAY_LOG(DEBUG) << "HERE " << task_id;
         absl::MutexLock lock(&mu_);
 
@@ -227,7 +228,8 @@ void CoreWorkerDirectTaskSubmitter::RequestNewWorkerIfNeeded(
       }));
   RAY_CHECK(pending_lease_requests_
                 .emplace(scheduling_key, std::make_pair(lease_client, task_id))
-                .second) << task_id;
+                .second)
+      << task_id;
 }
 
 void CoreWorkerDirectTaskSubmitter::PushNormalTask(

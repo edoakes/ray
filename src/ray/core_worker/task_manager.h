@@ -155,13 +155,8 @@ class TaskManager : public TaskFinisherInterface, public TaskResubmissionInterfa
   size_t NumPendingTasks() const;
 
  private:
-  /// XXX: Centralized.
-  void MaybeDecrementGcsRefcounts(const std::vector<ObjectID> &object_ids)
-      LOCKS_EXCLUDED(mu_);
-
-  /// XXX: Centralized.
   void CompletePendingTaskInternal(const TaskID &task_id, const rpc::PushTaskReply &reply,
-                           const rpc::Address &worker_addr);
+                                   const rpc::Address &worker_addr);
 
   struct TaskEntry {
     TaskEntry(const TaskSpecification &spec_arg, int num_retries_left_arg,
@@ -262,7 +257,7 @@ class TaskManager : public TaskFinisherInterface, public TaskResubmissionInterfa
   /// Optional shutdown hook to call when pending tasks all finish.
   std::function<void()> shutdown_hook_ GUARDED_BY(mu_) = nullptr;
 
-  std::shared_ptr<gcs::RedisGcsClient> gcs_client_ GUARDED_BY(mu_);
+  std::shared_ptr<gcs::RedisGcsClient> gcs_client_;
 };
 
 }  // namespace ray

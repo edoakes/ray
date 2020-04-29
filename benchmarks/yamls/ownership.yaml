@@ -81,7 +81,7 @@ setup_commands:
     - echo set-window-option -g mode-mouse on > ~/.tmux.conf
     - echo 'termcapinfo xterm* ti@:te@' > ~/.screenrc
     - '[ -z "$RAY_HEAD_IP" ] && echo "On driver node" || echo "On worker node"'
-    - echo 'export RAY_GCS_SERVICE_ENABLED=false' >> ~/.bashrc
+    - echo 'export RAY_GCS_SERVICE_ENABLED=false' > ~/.bash_profile
     - cd ray/python; [ -z "$RAY_HEAD_IP" ] && source activate tensorflow_p36 && python setup.py develop || true
 
 # Custom commands that will be run on the head node after common setup.

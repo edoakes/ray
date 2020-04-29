@@ -192,7 +192,7 @@ def main(video_path, local, test_failure, timeline):
 
         if test_failure:
             time.sleep(3)
-            cluster.remove_node(preprocess_nodes[-1], allow_graceful=False)
+            cluster.remove_node(nodes[-1], allow_graceful=False)
             time.sleep(1)
             cluster.add_node(
                 object_store_memory=10**9,

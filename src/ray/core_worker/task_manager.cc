@@ -24,14 +24,6 @@ const int64_t kTaskFailureThrottlingThreshold = 50;
 // Throttle task failure logs to once this interval.
 const int64_t kTaskFailureLoggingFrequencyMillis = 5000;
 
-void TaskManager::MaybeDecrementGcsRefcounts(const std::vector<ObjectID> &dependencies) {
-  if (gcs_client_) {
-    for (auto &dependency : dependencies) {
-      RAY_CHECK_OK(gcs_client_->DecrementReference(dependency, nullptr));
-    }
-  }
-}
-
 void TaskManager::AddPendingTask(const TaskID &caller_id,
                                  const rpc::Address &caller_address,
                                  const TaskSpecification &spec,
@@ -188,17 +180,18 @@ void TaskManager::CompletePendingTask(const TaskID &task_id,
     }
     std::shared_ptr<gcs::TaskTableData> data = std::make_shared<gcs::TaskTableData>();
     data->mutable_task()->mutable_task_spec()->CopyFrom(spec.GetMessage());
-    RAY_CHECK_OK(gcs_client_->Tasks().AsyncAdd(data, [this, task_id, reply, worker_addr](const Status &status) {
+    RAY_CHECK_OK(gcs_client_->Tasks().AsyncAdd(
+        data, [this, task_id, reply, worker_addr](const Status &status) {
           CompletePendingTaskInternal(task_id, reply, worker_addr);
-    }));
+        }));
   } else {
     CompletePendingTaskInternal(task_id, reply, worker_addr);
   }
 }
 
 void TaskManager::CompletePendingTaskInternal(const TaskID &task_id,
-                                      const rpc::PushTaskReply &reply,
-                                      const rpc::Address &worker_addr) {
+                                              const rpc::PushTaskReply &reply,
+                                              const rpc::Address &worker_addr) {
   std::vector<ObjectID> direct_return_ids;
   std::vector<ObjectID> plasma_return_ids;
   for (int i = 0; i < reply.return_objects_size(); i++) {
@@ -401,7 +394,11 @@ void TaskManager::RemoveFinishedTaskReferences(
   in_memory_store_->Delete(deleted);
 
   // XXX: Centralized.
-  MaybeDecrementGcsRefcounts(plasma_dependencies);
+  if (gcs_client_) {
+    for (auto &dependency : plasma_dependencies) {
+      RAY_CHECK_OK(gcs_client_->DecrementReference(dependency, nullptr));
+    }
+  }
 }
 
 void TaskManager::RemoveLineageReference(const ObjectID &object_id,

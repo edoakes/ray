@@ -1,11 +1,9 @@
 import argparse
 import json
 import os
-import random
 import socket
 import time
 import datetime
-from collections import defaultdict
 
 import ray
 
@@ -28,8 +26,6 @@ parser.add_argument(
 
 NUM_DRIVERS = 2
 CHAIN_LENGTH = 10
-SMALL_ARG = lambda: None
-LARGE_ARG = lambda: np.zeros(1 * 1024 * 1024, dtype=np.uint8)  # 1 MiB
 TASKS_PER_NODE_PER_BATCH = 1000
 
 
@@ -37,7 +33,7 @@ def get_node_ids():
     my_ip = ".".join(socket.gethostname().split("-")[1:])
     node_ids = set()
     for resource in ray.available_resources():
-        if "node" in resource and not my_ip in resource:
+        if "node" in resource and my_ip not in resource:
             node_ids.add(resource)
     return node_ids
 
