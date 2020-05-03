@@ -52,7 +52,7 @@ auth:
 # For more documentation on available fields, see:
 # http://boto3.readthedocs.io/en/latest/reference/services/ec2.html#EC2.ServiceResource.create_instances
 head_node:
-    InstanceType: m4.4xlarge
+    InstanceType: m4.16xlarge
     ImageId: ami-0c7b33c1ca695dec4
 
     # Additional options in the boto docs.
@@ -96,7 +96,7 @@ worker_setup_commands: []
 # Command to start ray on the head node. You don't need to change this.
 head_start_ray_commands:
     - source activate tensorflow_p36 && ray stop
-    - ray start --head --redis-port=6379 --object-manager-port=8076 --autoscaling-config=~/ray_bootstrap_config.yaml --num-cpus=0 --internal-config="{\"record_ref_creation_sites\":0, \"max_direct_call_object_size\":10737418240, \"max_grpc_message_size\":-1}"
+    - ray start --head --include-webui=False --redis-port=6379 --object-manager-port=8076 --autoscaling-config=~/ray_bootstrap_config.yaml --num-cpus=0 --internal-config="{\"record_ref_creation_sites\":0, \"max_direct_call_object_size\":10737418240, \"max_grpc_message_size\":-1}"
 
 # Command to start ray on worker nodes. You don't need to change this.
 worker_start_ray_commands:

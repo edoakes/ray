@@ -24,8 +24,9 @@ parser.add_argument(
 parser.add_argument(
     "--timeline", action="store_true", help="Whether to dump a timeline")
 
+WORKER_CPUS = 4
 NUM_DRIVERS = 10
-TASKS_PER_NODE_PER_BATCH = 2000
+TASKS_PER_NODE_PER_BATCH = 100000
 
 
 def get_node_ids():
@@ -90,8 +91,10 @@ def timeit(fn, trials=5, multiplier=1):
 
 
 @ray.remote
-def f():
-    return b"ok"
+class Actor:
+    def f(self):
+        return b"ok"
+
 
 def main(opts):
     do_ray_init(opts)
@@ -107,31 +110,42 @@ def main(opts):
     @ray.remote(num_cpus=0, resources={get_local_node_resource(): 0.0001})
     class Driver:
         def __init__(self, node_ids):
-            self.node_funcs = [f.options(resources={node_id: 0.0001}) for node_id in node_ids]
+            self.my_actors = []
+            for node_id in node_ids:
+                for _ in range(WORKER_CPUS):
+                    self.my_actors.append(
+                        Actor.options(resources={
+                            node_id: 0.0001
+                        }).remote())
 
         def do_batch(self, tasks_per_node):
             results = []
-            # Submit in rounds.
-            for _ in range(int(tasks_per_node/500)):
-                for func in self.node_funcs:
-                    results.extend([func.remote() for _ in range(500)])
+            tasks_per_core = int(tasks_per_node / WORKER_CPUS)
+            for idx in range(0, tasks_per_node, tasks_per_core):
+                actor = self.my_actors[int(idx / tasks_per_core)]
+                results.extend(
+                    [actor.f.remote() for _ in range(tasks_per_core)])
             ray.get(results)
 
     assert len(node_ids) % NUM_DRIVERS == 0
+    assert TASKS_PER_NODE_PER_BATCH % WORKER_CPUS == 0
     nodes_per_driver = int(len(node_ids) / NUM_DRIVERS)
 
     drivers = []
     for i in range(NUM_DRIVERS):
-        nodes = node_ids[i * nodes_per_driver:(i + 1) *
-                         nodes_per_driver]
+        nodes = node_ids[i * nodes_per_driver:(i + 1) * nodes_per_driver]
         drivers.append(Driver.remote(nodes))
 
     def job():
-        ray.get([driver.do_batch.remote(TASKS_PER_NODE_PER_BATCH) for driver in drivers])
+        ray.get([
+            driver.do_batch.remote(TASKS_PER_NODE_PER_BATCH)
+            for driver in drivers
+        ])
 
-    timeit(
-        job,
-        multiplier=len(node_ids) * TASKS_PER_NODE_PER_BATCH)
+    timeit(job, multiplier=len(node_ids) * TASKS_PER_NODE_PER_BATCH)
+
+    del drivers
+    time.sleep(1)
 
     if opts.timeline:
         now = datetime.datetime.now()
