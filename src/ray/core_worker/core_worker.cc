@@ -358,8 +358,7 @@ CoreWorker::CoreWorker(const CoreWorkerOptions &options, const WorkerID &worker_
 
   plasma_store_provider_.reset(new CoreWorkerPlasmaStoreProvider(
       options_.store_socket, local_raylet_client_, options_.check_signals,
-      /*evict_if_full=*/RayConfig::instance().object_pinning_enabled(),
-      boost::bind(&CoreWorker::TriggerGlobalGC, this),
+      /*evict_if_full=*/true, boost::bind(&CoreWorker::TriggerGlobalGC, this),
       boost::bind(&CoreWorker::CurrentCallSite, this)));
   memory_store_.reset(new CoreWorkerMemoryStore(
       [this](const RayObject &obj, const ObjectID &obj_id) {
@@ -761,16 +760,9 @@ Status CoreWorker::Put(const RayObject &object,
       RAY_CHECK_OK(local_raylet_client_->PinObjectIDs(
           rpc_address_, {object_id},
           [this, object_id](const Status &status, const rpc::PinObjectIDsReply &reply) {
-            // Only release the object once the raylet has responded to avoid the race
-            // condition that the object could be evicted before the raylet pins it.
-            if (!plasma_store_provider_->Release(object_id).ok()) {
-              RAY_LOG(ERROR) << "Failed to release ObjectID (" << object_id
-                             << "), might cause a leak in plasma.";
-            }
           }));
-    } else {
-      RAY_RETURN_NOT_OK(plasma_store_provider_->Release(object_id));
     }
+    RAY_RETURN_NOT_OK(plasma_store_provider_->Release(object_id));
   }
   RAY_CHECK(memory_store_->Put(RayObject(rpc::ErrorType::OBJECT_IN_PLASMA), object_id));
   return Status::OK();
@@ -818,17 +810,9 @@ Status CoreWorker::Seal(const ObjectID &object_id, bool pin_object,
     RAY_LOG(DEBUG) << "Pinning sealed object " << object_id;
     RAY_CHECK_OK(local_raylet_client_->PinObjectIDs(
         owner_address.has_value() ? *owner_address : rpc_address_, {object_id},
-        [this, object_id](const Status &status, const rpc::PinObjectIDsReply &reply) {
-          // Only release the object once the raylet has responded to avoid the race
-          // condition that the object could be evicted before the raylet pins it.
-          if (!plasma_store_provider_->Release(object_id).ok()) {
-            RAY_LOG(ERROR) << "Failed to release ObjectID (" << object_id
-                           << "), might cause a leak in plasma.";
-          }
-        }));
-  } else {
-    RAY_RETURN_NOT_OK(plasma_store_provider_->Release(object_id));
+        [this, object_id](const Status &status, const rpc::PinObjectIDsReply &reply) {}));
   }
+  RAY_RETURN_NOT_OK(plasma_store_provider_->Release(object_id));
   RAY_CHECK(memory_store_->Put(RayObject(rpc::ErrorType::OBJECT_IN_PLASMA), object_id));
   return Status::OK();
 }
