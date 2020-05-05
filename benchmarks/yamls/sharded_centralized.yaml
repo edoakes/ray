@@ -83,7 +83,7 @@ setup_commands:
     - '[ -z "$RAY_HEAD_IP" ] && echo "On driver node" || echo "On worker node"'
     - echo 'export RAY_0_7=1' > ~/.bash_profile
     - echo 'export RAY_CENTRALIZED=true' >> ~/.bash_profile
-    - source activate tensorflow_p36 && pip install -U LINK_TO_WHEEL
+    - source activate tensorflow_p36 && pip install -U https://custom-wheels.s3-us-west-2.amazonaws.com/ray-0.7.7-cp36-cp36m-manylinux1_x86_64.whl
 
 # Custom commands that will be run on the head node after common setup.
 head_setup_commands:
