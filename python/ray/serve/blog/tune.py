@@ -1,6 +1,6 @@
 from sklearn.model_selection import RandomizedSearchCV
 from scipy.stats import uniform
-from scipy.sparse import save_npz, load_npz # used for saving and loading sparse matrices
+from scipy.sparse import save_npz, load_npz  # used for saving and loading sparse matrices
 from sklearn.linear_model import SGDClassifier
 from sklearn.model_selection import train_test_split
 from scipy.sparse import csr_matrix
@@ -17,16 +17,10 @@ y_train = pd.read_csv('csv/imdb_train.csv')['label'].values
 clf = SGDClassifier()
 
 distributions = dict(
-        penalty=['l1', 'l2', 'elasticnet'],
-        alpha=uniform(loc=1e-6, scale=1e-4)
-)
+    penalty=['l1', 'l2', 'elasticnet'], alpha=uniform(loc=1e-6, scale=1e-4))
 
 random_search_cv = RandomizedSearchCV(
-        estimator=clf,
-        param_distributions=distributions,
-        cv=5,
-        n_iter=50
-)
+    estimator=clf, param_distributions=distributions, cv=5, n_iter=50)
 random_search_cv.fit(X_train, y_train)
 print(f'Best params: {random_search_cv.best_params_}')
 print(f'Best score: {random_search_cv.best_score_}')
