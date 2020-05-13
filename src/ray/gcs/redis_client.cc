@@ -124,9 +124,14 @@ Status RedisClient::Connect(std::vector<boost::asio::io_service *> io_services) 
       size_t io_service_index = (i + 1) % io_services.size();
       boost::asio::io_service &io_service = *io_services[io_service_index];
       // Populate shard_contexts.
-      shard_contexts_.push_back(std::make_shared<RedisContext>(io_service));
-      RAY_CHECK_OK(shard_contexts_[i]->Connect(addresses[i], ports[i], /*sharding=*/true,
-                                               /*password=*/options_.password_));
+       auto shard_context = std::make_shared<RedisContext>(io_service);
+       RAY_CHECK_OK(shard_context->Connect(addresses[i], ports[i], /*sharding=*/true,
+                                           /*password=*/options_.password_));
+       if (i < RayConfig::instance().object_table_shards()) {
+         object_table_shard_contexts_.push_back(shard_context);
+       } else {
+         shard_contexts_.push_back(shard_context);
+       }
     }
   } else {
     shard_contexts_.push_back(std::make_shared<RedisContext>(*io_services[0]));

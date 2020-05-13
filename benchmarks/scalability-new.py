@@ -18,7 +18,9 @@ parser.add_argument(
     required=True,
     help="Number of nodes in the cluster")
 parser.add_argument(
-    "--multi-node", action="store_true", help="Whether to put drivers on separate nodes")
+    "--multi-node",
+    action="store_true",
+    help="Whether to put drivers on separate nodes")
 parser.add_argument(
     "--timeline", action="store_true", help="Whether to dump a timeline")
 
@@ -92,9 +94,11 @@ def timeit(fn, trials=1, multiplier=1):
 def f_small(*args):
     return b"hi"
 
+
 @ray.remote
 def f_large(*args):
     return np.zeros(1 * 1024 * 1024, dtype=np.uint8)
+
 
 def do_batch(use_small, node_ids, args=None):
     if args is None:
@@ -119,6 +123,7 @@ def do_batch(use_small, node_ids, args=None):
 
     return results
 
+
 def main(opts):
     do_ray_init(opts)
 
@@ -126,15 +131,18 @@ def main(opts):
     assert opts.num_nodes % NODES_PER_DRIVER == 0
     num_drivers = int(opts.num_nodes / NODES_PER_DRIVER)
     while len(node_ids) < opts.num_nodes + num_drivers:
-        print("{} / {} nodes have joined, sleeping for 1s...".format(len(node_ids), opts.num_nodes + num_drivers))
+        print("{} / {} nodes have joined, sleeping for 1s...".format(
+            len(node_ids), opts.num_nodes + num_drivers))
         time.sleep(1)
         node_ids = get_node_ids()
 
     print("All {} nodes joined: {}".format(len(node_ids), node_ids))
     worker_node_ids = list(node_ids)[:opts.num_nodes]
-    driver_node_ids = list(node_ids)[opts.num_nodes:opts.num_nodes+num_drivers]
+    driver_node_ids = list(node_ids)[opts.num_nodes:opts.num_nodes +
+                                     num_drivers]
 
     use_small = args.arg_size == "small"
+
     @ray.remote(num_cpus=4 if opts.multi_node else 0)
     class Driver:
         def __init__(self, node_ids):
@@ -159,8 +167,9 @@ def main(opts):
             node_id = get_local_node_resource()
         resources = {node_id: 0.001}
         worker_nodes = worker_node_ids[i * NODES_PER_DRIVER:(i + 1) *
-                         NODES_PER_DRIVER]
-        drivers.append(Driver.options(resources=resources).remote(worker_nodes))
+                                       NODES_PER_DRIVER]
+        drivers.append(
+            Driver.options(resources=resources).remote(worker_nodes))
 
     ray.get([driver.ready.remote() for driver in drivers])
 
@@ -169,7 +178,8 @@ def main(opts):
 
     timeit(
         job,
-        multiplier=len(worker_node_ids) * TASKS_PER_NODE_PER_BATCH * CHAIN_LENGTH)
+        multiplier=len(worker_node_ids) * TASKS_PER_NODE_PER_BATCH *
+        CHAIN_LENGTH)
 
     if opts.timeline:
         now = datetime.datetime.now()

@@ -10,6 +10,7 @@ import numpy as np
 NUM_TRIALS = 100
 CONDITIONS = [0, 1024, 10 * 1024, 100 * 1024, 1024 * 1024, 10 * 1024 * 1024]
 
+
 def get_node_ids():
     my_ip = ".".join(socket.gethostname().split("-")[1:])
     node_ids = set()
@@ -23,6 +24,7 @@ def get_local_node_resource():
     my_ip = ".".join(socket.gethostname().split("-")[1:])
     addr = "node:{}".format(my_ip)
     return addr
+
 
 def sizeof_fmt(num):
     for unit in ["", "Ki", "Mi", "Gi"]:
@@ -69,7 +71,8 @@ def run_trial(obj_size):
 
     times = ray.get(actor1.run.remote())
     assert len(times) == NUM_TRIALS
-    print("\t", sizeof_fmt(obj_size), "avg (ms):", 1000*(sum(times) / len(times)))
+    print("\t", sizeof_fmt(obj_size), "avg (ms):",
+          1000 * (sum(times) / len(times)))
 
 
 def main():
@@ -80,6 +83,7 @@ def main():
     ray.init(address="auto", _internal_config=json.dumps(config))
     for obj_size in CONDITIONS:
         run_trial(obj_size)
+
 
 if __name__ == "__main__":
     main()

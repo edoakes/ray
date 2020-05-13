@@ -13,10 +13,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument(
     "--arg-size", type=str, required=True, help="'small' or 'large'")
 parser.add_argument(
-    "--num-nodes",
-    type=int,
-    default=20,
-    help="Number of nodes in the cluster")
+    "--num-nodes", type=int, default=20, help="Number of nodes in the cluster")
 parser.add_argument(
     "--no-args", action="store_true", help="Submit tasks with no arguments")
 parser.add_argument(
@@ -130,7 +127,8 @@ def main(opts):
 
     node_ids = get_node_ids()
     while len(node_ids) < opts.num_nodes:
-        print("{} / {} have joined, sleeping for 1s...".format(len(node_ids), opts.num_nodes))
+        print("{} / {} have joined, sleeping for 1s...".format(
+            len(node_ids), opts.num_nodes))
         time.sleep(1)
         node_ids = get_node_ids()
     node_ids = list(node_ids)[:opts.num_nodes]

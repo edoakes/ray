@@ -43,6 +43,8 @@ Status RedisGcsClient::Connect(boost::asio::io_service &io_service) {
   }
 
   std::shared_ptr<RedisContext> primary_context = redis_client_->GetPrimaryContext();
+  std::vector<std::shared_ptr<RedisContext>> object_table_shard_contexts =
+      redis_client_->GetObjectTableShardContexts();
   std::vector<std::shared_ptr<RedisContext>> shard_contexts =
       redis_client_->GetShardContexts();
 
@@ -59,7 +61,15 @@ Status RedisGcsClient::Connect(boost::asio::io_service &io_service) {
   job_table_.reset(new JobTable({primary_context}, this));
   heartbeat_batch_table_.reset(new HeartbeatBatchTable({primary_context}, this));
   // Tables below would be sharded.
-  object_table_.reset(new ObjectTable(shard_contexts, this));
+ RAY_LOG(INFO) << shard_contexts.size() << " shared shards";
+ if (object_table_shard_contexts.size() > 0) {
+   RAY_LOG(INFO) << object_table_shard_contexts.size()
+                 << " dedicated shards for object table";
+   object_table_.reset(new ObjectTable(object_table_shard_contexts, this));
+ } else {
+   RAY_LOG(INFO) << "Using shared shards for object table";
+   object_table_.reset(new ObjectTable(shard_contexts, this));
+ }
   raylet_task_table_.reset(new raylet::TaskTable(shard_contexts, this, command_type_));
   task_reconstruction_log_.reset(new TaskReconstructionLog(shard_contexts, this));
   task_lease_table_.reset(new TaskLeaseTable(shard_contexts, this));

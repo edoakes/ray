@@ -16,6 +16,7 @@ def get_local_node_resource():
     addr = "node:{}".format(my_ip)
     return addr
 
+
 def sizeof_fmt(num):
     for unit in ["", "Ki", "Mi", "Gi"]:
         if abs(num) < 1024.0:
@@ -74,10 +75,12 @@ def main():
     for obj_size in CONDITIONS:
         actor2 = Actor2.remote(obj_size)
         actor1 = Actor1.remote(actor2)
+
         def trial():
             ray.get(actor1.run.remote())
 
         timeit(trial, multiplier=NUM_TASKS, name=sizeof_fmt(obj_size))
+
 
 if __name__ == "__main__":
     main()

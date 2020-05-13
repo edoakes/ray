@@ -11,6 +11,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument(
     "--arg-size", type=str, required=True, help="'small' or 'large'")
 
+
 @ray.remote
 def generate_object(use_small):
     if use_small:

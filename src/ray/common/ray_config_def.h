@@ -288,3 +288,6 @@ RAY_CONFIG(bool, gcs_service_enabled,
                getenv("RAY_GCS_SERVICE_ENABLED") == std::string("true"))
 
 RAY_CONFIG(bool, centralized_owner, false)
+
+/// If set to 0, will share all shards with other tables.
+RAY_CONFIG(uint32_t, object_table_shards, 0)

@@ -101,8 +101,9 @@ def main(opts):
 
     node_ids = get_node_ids()
     while len(node_ids) < opts.num_nodes:
-        print("{} / {} have joined, sleeping for 1s...".format(len(node_ids), opts.num_nodes))
-        time.sleep(1))
+        print("{} / {} have joined, sleeping for 1s...".format(
+            len(node_ids), opts.num_nodes))
+        time.sleep(1)
         node_ids = get_node_ids()
     node_ids = list(node_ids)[:opts.num_nodes]
     print("All {} nodes joined: {}".format(len(node_ids), node_ids))
