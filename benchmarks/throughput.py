@@ -15,7 +15,7 @@ parser.add_argument(
 parser.add_argument(
     "--num-nodes",
     type=int,
-    required=True,
+    default=20,
     help="Number of nodes in the cluster")
 parser.add_argument(
     "--no-args", action="store_true", help="Submit tasks with no arguments")
@@ -83,9 +83,7 @@ def do_batch(use_small, no_args, node_ids, args=None):
 
 def do_ray_init(arg):
     internal_config = {"record_ref_creation_sites": 0}
-    if os.environ.get("CENTRALIZED", False):
-        internal_config["centralized_owner"] = 1
-    elif os.environ.get("BY_VAL_ONLY", False):
+    if os.environ.get("BY_VAL_ONLY", False):
         # Set threshold to 1 TiB to force everything to be inlined.
         internal_config["max_direct_call_object_size"] = 1024**4
         internal_config["max_grpc_message_size"] = -1
@@ -108,7 +106,7 @@ def do_ray_init(arg):
     ray.init(address="auto", _internal_config=internal_config)
 
 
-def timeit(fn, trials=5, multiplier=1):
+def timeit(fn, trials=3, multiplier=1):
     start = time.time()
     for _ in range(1):
         start = time.time()
@@ -132,8 +130,8 @@ def main(opts):
 
     node_ids = get_node_ids()
     while len(node_ids) < opts.num_nodes:
-        print("Not all nodes have joined yet, sleeping for 1s...",
-              time.sleep(1))
+        print("{} / {} have joined, sleeping for 1s...".format(len(node_ids), opts.num_nodes))
+        time.sleep(1)
         node_ids = get_node_ids()
     node_ids = list(node_ids)[:opts.num_nodes]
     print("All {} nodes joined: {}".format(len(node_ids), node_ids))

@@ -11,21 +11,20 @@ parser = argparse.ArgumentParser()
 parser.add_argument(
     "--arg-size", type=str, required=True, help="'small' or 'large'")
 
-SMALL_ARG_SIZE = 10 * 1024  # 10 KiB
-LARGE_ARG_SIZE = 1024 * 1024  # 1 MiB
-
-
 @ray.remote
-def generate_object(size):
-    return np.zeros(size, dtype=np.uint8)
+def generate_object(use_small):
+    if use_small:
+        return b"ok"
+    else:
+        return np.zeros(1024 * 1024, dtype=np.uint8)
 
 
 # Worker nodes only have 4 CPUs, force spread.
 @ray.remote(num_cpus=4)
 class Actor2:
-    def __init__(self, other, obj_size):
+    def __init__(self, other, use_small):
         self.other = other
-        self.my_object = generate_object.remote(obj_size)
+        self.my_object = generate_object.remote(use_small)
         ray.get(self.my_object)
 
     def ping(self, arg):
@@ -53,11 +52,20 @@ class Actor1:
 
 def do_ray_init(args):
     internal_config = {"record_ref_creation_sites": 0}
-    if os.environ.get("CENTRALIZED", False):
-        internal_config["centralized_owner"] = 1
     if os.environ.get("BY_VAL_ONLY", False):
         # Set threshold to 1 TiB to force everything to be inlined.
         internal_config["max_direct_call_object_size"] = 1024**4
+        internal_config["max_grpc_message_size"] = -1
+    else:
+        # Base ownership case.
+        internal_config.update({
+            "initial_reconstruction_timeout_milliseconds": 100,
+            "num_heartbeats_timeout": 10,
+            "lineage_pinning_enabled": 1,
+            "free_objects_period_milliseconds": -1,
+            "object_manager_repeated_push_delay_ms": 1000,
+            "task_retry_delay_ms": 1000,
+        })
 
     internal_config = json.dumps(internal_config)
     if os.environ.get("RAY_0_7", False):
@@ -67,11 +75,11 @@ def do_ray_init(args):
     ray.init(address="auto", _internal_config=internal_config)
 
 
-def main(opts):
-    do_ray_init(opts)
+def main(use_small):
+    do_ray_init(use_small)
 
-    actor1 = Actor1.remote(opts.arg_size)
-    actor2 = Actor2.remote(actor1, opts.arg_size)
+    actor1 = Actor1.remote(use_small)
+    actor2 = Actor2.remote(actor1, use_small)
     trials = 1100
     for i in range(trials):
         print("iter {}/{}".format(i + 1, trials))
@@ -85,9 +93,7 @@ def main(opts):
 if __name__ == "__main__":
     args = parser.parse_args()
     if args.arg_size == "small":
-        args.arg_size = SMALL_ARG_SIZE
-    elif args.arg_size == "large":
-        args.arg_size = LARGE_ARG_SIZE
+        use_small = True
     else:
-        assert False
-    main(args)
+        use_small = False
+    main(use_small)

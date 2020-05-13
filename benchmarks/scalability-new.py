@@ -11,22 +11,20 @@ import numpy as np
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
-    "--arg-size", type=str, default="small", help="'small' or 'large'")
+    "--arg-size", type=str, required=True, help="'small' or 'large'")
 parser.add_argument(
     "--num-nodes",
     type=int,
     required=True,
     help="Number of nodes in the cluster")
 parser.add_argument(
-    "--no-args", action="store_true", help="Submit tasks with no arguments")
-parser.add_argument(
-    "--sharded", action="store_true", help="Whether to shard the driver")
+    "--multi-node", action="store_true", help="Whether to put drivers on separate nodes")
 parser.add_argument(
     "--timeline", action="store_true", help="Whether to dump a timeline")
 
-WORKER_CPUS = 4
-NUM_DRIVERS = 10
-TASKS_PER_NODE_PER_BATCH = 100000
+NODES_PER_DRIVER = 5
+CHAIN_LENGTH = 10
+TASKS_PER_NODE_PER_BATCH = 2000
 
 
 def get_node_ids():
@@ -55,7 +53,7 @@ def do_ray_init(arg):
     else:
         # Base ownership case.
         internal_config.update({
-            "initial_reconstruction_timeout_milliseconds": 100,
+            "initial_reconstruction_timeout_milliseconds": 100000,
             "num_heartbeats_timeout": 10,
             "lineage_pinning_enabled": 1,
             "free_objects_period_milliseconds": -1,
@@ -71,7 +69,7 @@ def do_ray_init(arg):
     ray.init(address="auto", _internal_config=internal_config)
 
 
-def timeit(fn, trials=5, multiplier=1):
+def timeit(fn, trials=1, multiplier=1):
     start = time.time()
     for _ in range(1):
         start = time.time()
@@ -91,61 +89,87 @@ def timeit(fn, trials=5, multiplier=1):
 
 
 @ray.remote
-class Actor:
-    def f(self):
-        return b"ok"
+def f_small(*args):
+    return b"hi"
 
+@ray.remote
+def f_large(*args):
+    return np.zeros(1 * 1024 * 1024, dtype=np.uint8)
+
+def do_batch(use_small, node_ids, args=None):
+    if args is None:
+        args = {}
+        for node_id in node_ids:
+            args[node_id] = None
+
+    if use_small:
+        f = f_small
+    else:
+        f = f_large
+
+    results = dict()
+    for node_id in node_ids:
+        f_node = f.options(resources={node_id: 0.0001})
+
+        batch = [
+            f_node.remote(args[node_id])
+            for _ in range(TASKS_PER_NODE_PER_BATCH)
+        ]
+        results[node_id] = f_node.remote(*batch)
+
+    return results
 
 def main(opts):
     do_ray_init(opts)
 
     node_ids = get_node_ids()
-    while len(node_ids) < opts.num_nodes:
-        print("{} / {} have joined, sleeping for 1s...".format(len(node_ids), opts.num_nodes))
-        time.sleep(1))
+    assert opts.num_nodes % NODES_PER_DRIVER == 0
+    num_drivers = int(opts.num_nodes / NODES_PER_DRIVER)
+    while len(node_ids) < opts.num_nodes + num_drivers:
+        print("{} / {} nodes have joined, sleeping for 1s...".format(len(node_ids), opts.num_nodes + num_drivers))
+        time.sleep(1)
         node_ids = get_node_ids()
-    node_ids = list(node_ids)[:opts.num_nodes]
-    print("All {} nodes joined: {}".format(len(node_ids), node_ids))
 
-    @ray.remote(num_cpus=0, resources={get_local_node_resource(): 0.0001})
+    print("All {} nodes joined: {}".format(len(node_ids), node_ids))
+    worker_node_ids = list(node_ids)[:opts.num_nodes]
+    driver_node_ids = list(node_ids)[opts.num_nodes:opts.num_nodes+num_drivers]
+
+    use_small = args.arg_size == "small"
+    @ray.remote(num_cpus=4 if opts.multi_node else 0)
     class Driver:
         def __init__(self, node_ids):
-            self.my_actors = []
-            for node_id in node_ids:
-                for _ in range(WORKER_CPUS):
-                    self.my_actors.append(
-                        Actor.options(resources={
-                            node_id: 0.0001
-                        }).remote())
+            # print("Driver starting with nodes:", node_ids)
+            self.node_ids = node_ids
 
-        def do_batch(self, tasks_per_node):
-            results = []
-            tasks_per_core = int(tasks_per_node / WORKER_CPUS)
-            for idx in range(0, tasks_per_node, tasks_per_core):
-                actor = self.my_actors[int(idx / tasks_per_core)]
-                results.extend(
-                    [actor.f.remote() for _ in range(tasks_per_core)])
-            ray.get(results)
+        def do_batch(self):
+            prev = None
+            for _ in range(CHAIN_LENGTH):
+                prev = do_batch(use_small, self.node_ids, args=prev)
 
-    assert len(node_ids) % NUM_DRIVERS == 0
-    assert TASKS_PER_NODE_PER_BATCH % WORKER_CPUS == 0
-    nodes_per_driver = int(len(node_ids) / NUM_DRIVERS)
+            ray.get(list(prev.values()))
+
+        def ready(self):
+            pass
 
     drivers = []
-    for i in range(NUM_DRIVERS):
-        nodes = node_ids[i * nodes_per_driver:(i + 1) * nodes_per_driver]
-        drivers.append(Driver.remote(nodes))
+    for i in range(num_drivers):
+        if opts.multi_node:
+            node_id = driver_node_ids[i]
+        else:
+            node_id = get_local_node_resource()
+        resources = {node_id: 0.001}
+        worker_nodes = worker_node_ids[i * NODES_PER_DRIVER:(i + 1) *
+                         NODES_PER_DRIVER]
+        drivers.append(Driver.options(resources=resources).remote(worker_nodes))
+
+    ray.get([driver.ready.remote() for driver in drivers])
 
     def job():
-        ray.get([
-            driver.do_batch.remote(TASKS_PER_NODE_PER_BATCH)
-            for driver in drivers
-        ])
+        ray.get([driver.do_batch.remote() for driver in drivers])
 
-    timeit(job, multiplier=len(node_ids) * TASKS_PER_NODE_PER_BATCH)
-
-    del drivers
-    time.sleep(1)
+    timeit(
+        job,
+        multiplier=len(worker_node_ids) * TASKS_PER_NODE_PER_BATCH * CHAIN_LENGTH)
 
     if opts.timeline:
         now = datetime.datetime.now()
