@@ -103,6 +103,8 @@ class RedisClient {
   std::vector<std::shared_ptr<RedisContext>> object_table_shard_contexts_;
   std::vector<std::unique_ptr<RedisAsioClient>> shard_asio_async_clients_;
   std::vector<std::unique_ptr<RedisAsioClient>> shard_asio_subscribe_clients_;
+  std::vector<std::unique_ptr<RedisAsioClient>> object_table_shard_asio_async_clients_;
+  std::vector<std::unique_ptr<RedisAsioClient>> object_table_shard_asio_subscribe_clients_;
   // The following context writes everything to the primary shard
   std::shared_ptr<RedisContext> primary_context_;
   std::unique_ptr<RedisAsioClient> asio_async_auxiliary_client_;

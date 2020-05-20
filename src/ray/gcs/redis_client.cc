@@ -159,6 +159,14 @@ void RedisClient::Attach() {
         new RedisAsioClient(io_service, context->subscribe_context()));
   }
 
+  for (std::shared_ptr<RedisContext> context : object_table_shard_contexts_) {
+    boost::asio::io_service &io_service = context->io_service();
+    object_table_shard_asio_async_clients_.emplace_back(
+        new RedisAsioClient(io_service, context->async_context()));
+    object_table_shard_asio_subscribe_clients_.emplace_back(
+        new RedisAsioClient(io_service, context->subscribe_context()));
+  }
+
   boost::asio::io_service &io_service = primary_context_->io_service();
   asio_async_auxiliary_client_.reset(
       new RedisAsioClient(io_service, primary_context_->async_context()));
