@@ -11,7 +11,8 @@ from botocore.config import Config
 from ray.autoscaler.node_provider import NodeProvider
 from ray.autoscaler.aws.config import bootstrap_aws
 from ray.autoscaler.tags import TAG_RAY_CLUSTER_NAME, TAG_RAY_NODE_NAME, \
-    TAG_RAY_LAUNCH_CONFIG, TAG_RAY_NODE_TYPE, TAG_RAY_INSTANCE_TYPE
+    TAG_RAY_LAUNCH_CONFIG, TAG_RAY_NODE_TYPE, TAG_RAY_INSTANCE_TYPE, \
+    TAG_RAY_WARM_POOL
 from ray.ray_constants import BOTO_MAX_RETRIES, BOTO_CREATE_MAX_RETRIES
 from ray.autoscaler.log_timer import LogTimer
 
@@ -201,13 +202,15 @@ class AWSNodeProvider(NodeProvider):
     def get_instance_type(self, node_config):
         return node_config["InstanceType"]
 
-    def create_node(self, node_config, tags, count):
+    def create_node(self, node_config, tags, count, for_cache=False):
         # Always add the instance type tag, since node reuse is unsafe
         # otherwise.
         tags = copy.deepcopy(tags)
         tags[TAG_RAY_INSTANCE_TYPE] = node_config["InstanceType"]
+        if not for_cache:
+            count -= self._use_running_nodes(node_config, tags, count)
         # Try to reuse previously stopped nodes with compatible configs
-        if self.cache_stopped_nodes:
+        if not for_cache and count and self.cache_stopped_nodes:
             filters = [
                 {
                     "Name": "instance-state-name",
@@ -269,9 +272,9 @@ class AWSNodeProvider(NodeProvider):
                 count -= len(reuse_node_ids)
 
         if count:
-            self._create_node(node_config, tags, count)
+            self._create_node(node_config, tags, count, for_cache=for_cache)
 
-    def _create_node(self, node_config, tags, count):
+    def _create_node(self, node_config, tags, count, for_cache=False):
         tags = to_aws_format(tags)
         conf = node_config.copy()
 
@@ -281,10 +284,13 @@ class AWSNodeProvider(NodeProvider):
         except KeyError:
             pass
 
-        tag_pairs = [{
-            "Key": TAG_RAY_CLUSTER_NAME,
-            "Value": self.cluster_name,
-        }]
+        if not for_cache:
+            tag_pairs = [{
+                "Key": TAG_RAY_CLUSTER_NAME,
+                "Value": self.cluster_name,
+            }]
+        else:
+            tag_pairs = []
         for k, v in tags.items():
             tag_pairs.append({
                 "Key": k,
@@ -367,6 +373,48 @@ class AWSNodeProvider(NodeProvider):
                     # todo: err msg
                     cli_logger.abort(exc)
                     cli_logger.old_error(logger, exc)
+
+    def _use_running_nodes(self, node_config, tags, count):
+        filters = [
+            {
+                "Name": "instance-state-name",
+                "Values": ["running"],
+            },
+            {
+                "Name": "tag:{}".format(TAG_RAY_INSTANCE_TYPE),
+                "Values": [tags[TAG_RAY_INSTANCE_TYPE]],
+            },
+            {
+                "Name": "tag:{}".format(TAG_RAY_WARM_POOL),
+                "Values": ["available"],
+            },
+        ]
+
+        reuse_nodes = list(self.ec2.instances.filter(Filters=filters))[:count]
+        reuse_node_ids = [n.id for n in reuse_nodes]
+        if reuse_nodes:
+            cli_logger.print("Using nodes from warm pool: {}.".format(
+                cli_logger.render_list(reuse_node_ids)))
+        else:
+            cli_logger.print("No nodes to use from warm pool")
+            return 0
+
+        conf = node_config.copy()
+        # Delete unsupported keys from the node config
+        try:
+            del conf["Resources"]
+        except KeyError:
+            pass
+
+        tags_copy = tags.copy()
+        tags_copy[TAG_RAY_CLUSTER_NAME] = self.cluster_name
+        tags_copy[TAG_RAY_WARM_POOL] = "in_use"
+
+        for node_id in reuse_node_ids:
+            self.tag_cache[node_id] = tags_copy
+            self.set_node_tags(node_id, tags_copy)
+
+        return len(reuse_node_ids)
 
     def terminate_node(self, node_id):
         node = self._get_cached_node(node_id)

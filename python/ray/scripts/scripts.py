@@ -17,7 +17,7 @@ import ray.services as services
 from ray.autoscaler.commands import (
     attach_cluster, exec_cluster, create_or_update_cluster, monitor_cluster,
     rsync, teardown_cluster, get_head_node_ip, kill_node, get_worker_node_ips,
-    debug_status, RUN_ENV_TYPES)
+    debug_status, start_prewarmed_nodes, RUN_ENV_TYPES)
 import ray.ray_constants as ray_constants
 import ray.utils
 from ray.projects.scripts import project_cli, session_cli
@@ -877,6 +877,18 @@ def stop(force, verbose, log_new_style, log_color):
 
     # TODO(maximsmol): we should probably block until the processes actually
     # all died somehow
+
+
+@cli.command()
+@click.argument("cluster_config_file", required=True, type=str)
+@click.option("--num-nodes", required=False, default=1, type=int)
+@add_click_options(logging_options)
+def prewarm(cluster_config_file, num_nodes, log_new_style, log_color, verbose):
+    cli_logger.old_style = not log_new_style
+    cli_logger.color_mode = log_color
+    cli_logger.verbosity = verbose
+
+    start_prewarmed_nodes(cluster_config_file, num_nodes)
 
 
 @cli.command()

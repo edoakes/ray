@@ -25,7 +25,7 @@ from ray.autoscaler.node_provider import get_node_provider, NODE_PROVIDERS, \
     PROVIDER_PRETTY_NAMES, try_get_log_state, try_logging_config, \
     try_reload_log_state
 from ray.autoscaler.tags import TAG_RAY_NODE_TYPE, TAG_RAY_LAUNCH_CONFIG, \
-    TAG_RAY_NODE_NAME, NODE_TYPE_WORKER, NODE_TYPE_HEAD
+    TAG_RAY_NODE_NAME, NODE_TYPE_WORKER, NODE_TYPE_HEAD, TAG_RAY_WARM_POOL
 
 from ray.ray_constants import AUTOSCALER_RESOURCE_REQUEST_CHANNEL
 from ray.autoscaler.updater import NodeUpdaterThread
@@ -1024,3 +1024,67 @@ def _get_head_node(config: Dict[str, Any],
 
 def confirm(msg, yes):
     return None if yes else click.confirm(msg, abort=True)
+
+
+def start_prewarmed_nodes(config_file: str, num_nodes: int) -> None:
+    set_using_login_shells(True)
+    cmd_output_util.set_output_redirected(True)
+
+    cli_logger.detect_colors()
+
+    def handle_yaml_error(e):
+        cli_logger.error("Cluster config invalid\n")
+        cli_logger.error("Failed to load YAML file " + cf.bold("{}"),
+                         config_file)
+        cli_logger.newline()
+        with cli_logger.verbatim_error_ctx("PyYAML error:"):
+            cli_logger.error(e)
+        cli_logger.abort()
+
+    try:
+        config = yaml.safe_load(open(config_file).read())
+    except FileNotFoundError:
+        cli_logger.abort(
+            "Provided cluster configuration file ({}) does not exist",
+            cf.bold(config_file))
+    except yaml.parser.ParserError as e:
+        handle_yaml_error(e)
+    except yaml.scanner.ScannerError as e:
+        handle_yaml_error(e)
+
+    # todo: validate file_mounts, ssh keys, etc.
+
+    importer = NODE_PROVIDERS.get(config["provider"]["type"])
+    if not importer:
+        cli_logger.abort(
+            "Unknown provider type " + cf.bold("{}") + "\n"
+            "Available providers are: {}", config["provider"]["type"],
+            cli_logger.render_list([
+                k for k in NODE_PROVIDERS.keys()
+                if NODE_PROVIDERS[k] is not None
+            ]))
+        raise NotImplementedError("Unsupported provider {}".format(
+            config["provider"]))
+
+    cli_logger.success("Cluster configuration valid\n")
+
+    cli_logger.labeled_value("Cluster", config["cluster_name"])
+
+    # disable the cli_logger here if needed
+    # because it only supports aws
+    if config["provider"]["type"] != "aws":
+        cli_logger.old_style = True
+    cli_logger.newline()
+    config = _bootstrap_config(config, True)
+    if config["provider"]["type"] != "aws":
+        cli_logger.old_style = False
+
+    try_logging_config(config)
+
+    # actually start the nodes
+    provider = get_node_provider(config["provider"], config["cluster_name"])
+
+    provider.create_node(
+        config["head_node"], {TAG_RAY_WARM_POOL: "available"},
+        num_nodes,
+        for_cache=True)
