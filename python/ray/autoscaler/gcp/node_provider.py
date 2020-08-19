@@ -5,7 +5,8 @@ import logging
 
 from ray.autoscaler.node_provider import NodeProvider
 from ray.autoscaler.gcp.config import bootstrap_gcp
-from ray.autoscaler.tags import TAG_RAY_CLUSTER_NAME, TAG_RAY_NODE_NAME
+from ray.autoscaler.tags import TAG_RAY_CLUSTER_NAME, TAG_RAY_NODE_NAME, \
+        TAG_RAY_WARM_POOL
 from ray.autoscaler.gcp.config import MAX_POLLS, POLL_INTERVAL, \
         construct_clients_from_provider_config
 
@@ -158,7 +159,7 @@ class GCPNodeProvider(NodeProvider):
 
             return ip
 
-    def create_node(self, base_config, tags, count):
+    def create_node(self, base_config, tags, count, for_cache=False):
         with self.lock:
             labels = tags  # gcp uses "labels" instead of aws "tags"
             project_id = self.provider_config["project_id"]
@@ -166,22 +167,36 @@ class GCPNodeProvider(NodeProvider):
 
             config = base_config.copy()
 
-            name_label = labels[TAG_RAY_NODE_NAME]
-            assert (len(name_label) <=
-                    (INSTANCE_NAME_MAX_LEN - INSTANCE_NAME_UUID_LEN - 1)), (
-                        name_label, len(name_label))
-
             machine_type = ("zones/{zone}/machineTypes/{machine_type}"
                             "".format(
                                 zone=availability_zone,
                                 machine_type=base_config["machineType"]))
+
             labels = dict(config.get("labels", {}), **labels)
+            labels[TAG_RAY_CLUSTER_NAME] = self.cluster_name
 
             config.update({
                 "machineType": machine_type,
-                "labels": dict(labels,
-                               **{TAG_RAY_CLUSTER_NAME: self.cluster_name}),
+                "labels": labels,
             })
+
+            if for_cache:
+                labels[TAG_RAY_WARM_POOL] = machine_type.lower().replace(
+                    "/", "_")
+                name_label = "warm-pool"
+            else:
+                print("count before:", count)
+                count -= self._use_running_nodes(machine_type, labels, count)
+                print("count before:", count)
+                if count == 0:
+                    return
+                else:
+                    raise Exception()
+                name_label = labels[TAG_RAY_NODE_NAME]
+
+            assert (len(name_label) <=
+                    (INSTANCE_NAME_MAX_LEN - INSTANCE_NAME_UUID_LEN - 1)), (
+                        name_label, len(name_label))
 
             operations = [
                 self.compute.instances().insert(
@@ -202,6 +217,45 @@ class GCPNodeProvider(NodeProvider):
             ]
 
             return results
+
+    def _use_running_nodes(self, machine_type, labels, count):
+        tag_filters = {
+            TAG_RAY_WARM_POOL: machine_type.lower().replace("/", "_")
+        }
+        if tag_filters:
+            label_filter_expr = "(" + " AND ".join([
+                "(labels.{key} = {value})".format(key=key, value=value)
+                for key, value in tag_filters.items()
+            ]) + ")"
+        else:
+            label_filter_expr = ""
+
+        instance_state_filter_expr = "(" + " OR ".join([
+            "(status = {status})".format(status=status)
+            for status in {"RUNNING"}
+        ]) + ")"
+
+        not_empty_filters = [
+            f for f in [
+                label_filter_expr,
+                instance_state_filter_expr,
+            ] if f
+        ]
+
+        filter_expr = " AND ".join(not_empty_filters)
+
+        response = self.compute.instances().list(
+            project=self.provider_config["project_id"],
+            zone=self.provider_config["availability_zone"],
+            filter=filter_expr,
+        ).execute()
+
+        instances = response.get("items", [])[:count]
+        print("Got running nodes:", [i["name"] for i in instances])
+        labels[TAG_RAY_WARM_POOL] = "in_use"
+        for instance in instances:
+            self.set_node_tags(instance["name"], labels)
+        return len(instances)
 
     def terminate_node(self, node_id):
         with self.lock:
