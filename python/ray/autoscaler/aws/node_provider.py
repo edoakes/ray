@@ -11,7 +11,8 @@ from botocore.config import Config
 from ray.autoscaler.node_provider import NodeProvider
 from ray.autoscaler.aws.config import bootstrap_aws
 from ray.autoscaler.tags import TAG_RAY_CLUSTER_NAME, TAG_RAY_NODE_NAME, \
-    TAG_RAY_LAUNCH_CONFIG, TAG_RAY_NODE_KIND, TAG_RAY_USER_NODE_TYPE, TAG_RAY_WARM_POOL
+    TAG_RAY_LAUNCH_CONFIG, TAG_RAY_NODE_KIND, TAG_RAY_USER_NODE_TYPE, \
+    TAG_RAY_WARM_POOL
 from ray.ray_constants import BOTO_MAX_RETRIES, BOTO_CREATE_MAX_RETRIES
 from ray.autoscaler.log_timer import LogTimer
 
@@ -282,7 +283,10 @@ class AWSNodeProvider(NodeProvider):
                 "Value": self.cluster_name,
             }]
         else:
+            if TAG_RAY_USER_NODE_TYPE in tags:
+                tags["Name"] = "warm-pool-" + tags[TAG_RAY_USER_NODE_TYPE]
             tag_pairs = []
+
         for k, v in tags.items():
             tag_pairs.append({
                 "Key": k,

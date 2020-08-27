@@ -27,8 +27,8 @@ from ray.autoscaler.node_provider import get_node_provider, NODE_PROVIDERS, \
     PROVIDER_PRETTY_NAMES, try_get_log_state, try_logging_config, \
     try_reload_log_state
 from ray.autoscaler.tags import TAG_RAY_NODE_KIND, TAG_RAY_LAUNCH_CONFIG, \
-    TAG_RAY_NODE_NAME, NODE_KIND_WORKER, NODE_KIND_HEAD, TAG_RAY_USER_NODE_TYPE, \
-    TAG_RAY_WARM_POOL
+    TAG_RAY_NODE_NAME, NODE_KIND_WORKER, NODE_KIND_HEAD, \
+    TAG_RAY_WARM_POOL, TAG_RAY_USER_NODE_TYPE
 
 from ray.ray_constants import AUTOSCALER_RESOURCE_REQUEST_CHANNEL
 from ray.autoscaler.updater import NodeUpdaterThread
@@ -1066,7 +1066,7 @@ def confirm(msg, yes):
     return None if yes else click.confirm(msg, abort=True)
 
 
-def start_prewarmed_nodes(config_file: str, num_nodes: int) -> None:
+def start_prewarmed_nodes(config_file: str) -> None:
     set_using_login_shells(True)
     cmd_output_util.set_output_redirected(True)
 
@@ -1126,9 +1126,13 @@ def start_prewarmed_nodes(config_file: str, num_nodes: int) -> None:
 
     for node_type in config["available_node_types"]:
         num_nodes = config["available_node_types"][node_type]["max_workers"]
-        print("Starting {} nodes of type '{}'".format(max_workers, node_type))
-        tags = {TAG_RAY_WARM_POOL: "available", TAG_RAY_USER_NODE_TYPE: node_type}
+        print("Starting {} nodes of type '{}'".format(num_nodes, node_type))
+        tags = {
+            TAG_RAY_WARM_POOL: "available",
+            TAG_RAY_USER_NODE_TYPE: node_type
+        }
         node_config = copy.deepcopy(config["head_node"])
-        node_config.update(config["available_node_types"][node_type]["node_config"])
+        node_config.update(
+            config["available_node_types"][node_type]["node_config"])
 
         provider.create_node(node_config, tags, num_nodes, for_cache=True)

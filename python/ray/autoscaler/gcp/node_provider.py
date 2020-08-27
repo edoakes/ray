@@ -184,6 +184,9 @@ class GCPNodeProvider(NodeProvider):
                 labels[TAG_RAY_WARM_POOL] = machine_type.lower().replace(
                     "/", "_")
                 name_label = "warm-pool"
+                if TAG_RAY_USER_NODE_TYPE in labels:
+                    name_label += "-" + labels[TAG_RAY_USER_NODE_TYPE].replace(
+                        "_", "-")
             else:
                 count -= self._use_running_nodes(machine_type, labels, count)
                 if count == 0:
@@ -221,7 +224,8 @@ class GCPNodeProvider(NodeProvider):
             TAG_RAY_WARM_POOL: machine_type.lower().replace("/", "_")
         }
         if TAG_RAY_USER_NODE_TYPE in labels:
-            tag_filters[TAG_RAY_USER_NODE_TYPE] = labels[TAG_RAY_USER_NODE_TYPE]
+            tag_filters[TAG_RAY_USER_NODE_TYPE] = labels[
+                TAG_RAY_USER_NODE_TYPE]
         if tag_filters:
             label_filter_expr = "(" + " AND ".join([
                 "(labels.{key} = {value})".format(key=key, value=value)

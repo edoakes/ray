@@ -878,14 +878,13 @@ def stop(force, verbose, log_new_style, log_color):
 
 @cli.command()
 @click.argument("cluster_config_file", required=True, type=str)
-@click.option("--num-nodes", required=False, default=1, type=int)
 @add_click_options(logging_options)
-def prewarm(cluster_config_file, num_nodes, log_new_style, log_color, verbose):
+def prewarm(cluster_config_file, log_new_style, log_color, verbose):
     cli_logger.old_style = not log_new_style
     cli_logger.color_mode = log_color
     cli_logger.verbosity = verbose
 
-    start_prewarmed_nodes(cluster_config_file, num_nodes)
+    start_prewarmed_nodes(cluster_config_file)
 
 
 @cli.command()
