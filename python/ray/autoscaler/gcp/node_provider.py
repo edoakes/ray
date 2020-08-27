@@ -6,7 +6,7 @@ import logging
 from ray.autoscaler.node_provider import NodeProvider
 from ray.autoscaler.gcp.config import bootstrap_gcp
 from ray.autoscaler.tags import TAG_RAY_CLUSTER_NAME, TAG_RAY_NODE_NAME, \
-        TAG_RAY_WARM_POOL
+        TAG_RAY_WARM_POOL, TAG_RAY_USER_NODE_TYPE
 from ray.autoscaler.gcp.config import MAX_POLLS, POLL_INTERVAL, \
         construct_clients_from_provider_config
 
@@ -185,9 +185,7 @@ class GCPNodeProvider(NodeProvider):
                     "/", "_")
                 name_label = "warm-pool"
             else:
-                print("count before:", count)
                 count -= self._use_running_nodes(machine_type, labels, count)
-                print("count before:", count)
                 if count == 0:
                     return
                 else:
@@ -222,6 +220,8 @@ class GCPNodeProvider(NodeProvider):
         tag_filters = {
             TAG_RAY_WARM_POOL: machine_type.lower().replace("/", "_")
         }
+        if TAG_RAY_USER_NODE_TYPE in labels:
+            tag_filters[TAG_RAY_USER_NODE_TYPE] = labels[TAG_RAY_USER_NODE_TYPE]
         if tag_filters:
             label_filter_expr = "(" + " AND ".join([
                 "(labels.{key} = {value})".format(key=key, value=value)
