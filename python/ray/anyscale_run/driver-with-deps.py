@@ -1,12 +1,10 @@
-import requests
-import tensorflow
-
 from my_pkg import my_func
 
-ray.init()
+ray.init(runtime_env={"pip": ["requests"]})
 
 @ray.remote
 def task():
+    import tensorflow
     tensorflow.do_something()
 
 
