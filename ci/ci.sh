@@ -124,6 +124,7 @@ test_core() {
         -//:event_test
         -//:gcs_server_rpc_test
         -//:ray_syncer_test # TODO (iycheng): it's flaky on windows. Add it back once we figure out the cause
+        -//:gcs_health_check_manager_test
         -//:gcs_client_reconnection_test
       )
       ;;
@@ -414,10 +415,10 @@ validate_wheels_commit_str() {
       continue
     fi
 
-    WHL_COMMIT=$(unzip -p "$whl" | grep "^__commit__" | awk -F'"' '{print $2}')
+    WHL_COMMIT=$(unzip -p "$whl" "*ray/__init__.py" | grep "^__commit__" | awk -F'"' '{print $2}')
 
     if [ "${WHL_COMMIT}" != "${EXPECTED_COMMIT}" ]; then
-      echo "Error: Observed wheel commit (${WHL_COMMIT}) is not expected commit (${EXPECTED_COMMIT}). Aborting."
+      echo "Wheel ${basename} has incorrect commit: (${WHL_COMMIT}) is not expected commit (${EXPECTED_COMMIT}). Aborting."
       exit 1
     fi
 
@@ -814,6 +815,7 @@ run_minimal_test() {
 
 test_minimal() {
   ./ci/env/install-minimal.sh "$1"
+  echo "Installed minimal dependencies."
   ./ci/env/env_info.sh
   python ./ci/env/check_minimal_install.py
   run_minimal_test "$1"
@@ -822,8 +824,11 @@ test_minimal() {
 
 test_latest_core_dependencies() {
   ./ci/env/install-minimal.sh "$1"
+  echo "Installed minimal dependencies."
   ./ci/env/env_info.sh
   ./ci/env/install-core-prerelease-dependencies.sh
+  echo "Installed Core prerelease dependencies."
+  ./ci/env/env_info.sh
   run_minimal_test "$1"
 }
 
