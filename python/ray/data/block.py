@@ -109,7 +109,7 @@ CallableClass = type
 
 
 class _CallableClassProtocol(Protocol[T, U]):
-    def __call__(self, __arg: T) -> U:
+    def __call__(self, __arg: T) -> Union[U, Iterator[U]]:
         ...
 
 
@@ -119,6 +119,7 @@ BatchUDF = Union[
     # UDF type.
     # Callable[[DataBatch, ...], DataBatch]
     Callable[[DataBatch], DataBatch],
+    Callable[[DataBatch], Iterator[DataBatch]],
     "_CallableClassProtocol",
 ]
 
@@ -129,6 +130,12 @@ RowUDF = Union[
     # Callable[[T, ...], U]
     Callable[[T], U],
     "_CallableClassProtocol[T, U]",
+]
+
+
+FlatMapUDF = Union[
+    RowUDF,
+    Callable[[T], Iterator[U]],
 ]
 
 # A list of block references pending computation by a single task. For example,
@@ -143,7 +150,7 @@ BlockPartitionMetadata = List["BlockMetadata"]
 # is on by default. When block splitting is off, the type is a plain block.
 MaybeBlockPartition = Union[Block, ObjectRefGenerator]
 
-VALID_BATCH_FORMATS = ["default", "native", "pandas", "pyarrow", "numpy"]
+VALID_BATCH_FORMATS = ["default", "native", "pandas", "pyarrow", "numpy", None]
 
 
 @DeveloperAPI
@@ -209,21 +216,18 @@ class _BlockExecStatsBuilder:
 @DeveloperAPI
 @dataclass
 class BlockMetadata:
-    """Metadata about the block.
+    """Metadata about the block."""
 
-    Attributes:
-        num_rows: The number of rows contained in this block, or None.
-        size_bytes: The approximate size in bytes of this block, or None.
-        schema: The pyarrow schema or types of the block elements, or None.
-        input_files: The list of file paths used to generate this block, or
-            the empty list if indeterminate.
-        exec_stats: Execution stats for this block.
-    """
-
+    #: The number of rows contained in this block, or None.
     num_rows: Optional[int]
+    #: The approximate size in bytes of this block, or None.
     size_bytes: Optional[int]
+    #: The pyarrow schema or types of the block elements, or None.
     schema: Optional[Union[type, "pyarrow.lib.Schema"]]
+    #: The list of file paths used to generate this block, or
+    #: the empty list if indeterminate.
     input_files: Optional[List[str]]
+    #: Execution stats for this block.
     exec_stats: Optional[BlockExecStats]
 
     def __post_init__(self):
@@ -311,7 +315,7 @@ class BlockAccessor(Generic[T]):
         """Return the default data format for this accessor."""
         return self.to_block()
 
-    def to_batch_format(self, batch_format: str) -> DataBatch:
+    def to_batch_format(self, batch_format: Optional[str]) -> DataBatch:
         """Convert this block into the provided batch format.
 
         Args:
@@ -320,7 +324,9 @@ class BlockAccessor(Generic[T]):
         Returns:
             This block formatted as the provided batch format.
         """
-        if batch_format == "default" or batch_format == "native":
+        if batch_format is None:
+            return self.to_block()
+        elif batch_format == "default" or batch_format == "native":
             return self.to_default()
         elif batch_format == "pandas":
             return self.to_pandas()

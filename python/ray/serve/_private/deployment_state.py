@@ -29,6 +29,12 @@ from ray.serve._private.common import (
     ReplicaName,
     ReplicaTag,
     RunningReplicaInfo,
+    ReplicaState,
+)
+from ray.serve.schema import (
+    DeploymentDetails,
+    ReplicaDetails,
+    _deployment_info_to_schema,
 )
 from ray.serve.config import DeploymentConfig
 from ray.serve._private.constants import (
@@ -56,14 +62,6 @@ from ray._private.gcs_utils import GcsClient
 from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy
 
 logger = logging.getLogger(SERVE_LOGGER_NAME)
-
-
-class ReplicaState(Enum):
-    STARTING = 1
-    UPDATING = 2
-    RECOVERING = 3
-    RUNNING = 4
-    STOPPING = 5
 
 
 class ReplicaStartupStatus(Enum):
@@ -113,6 +111,9 @@ SLOW_STARTUP_WARNING_S = int(os.environ.get("SERVE_SLOW_STARTUP_WARNING_S", 30))
 SLOW_STARTUP_WARNING_PERIOD_S = int(
     os.environ.get("SERVE_SLOW_STARTUP_WARNING_PERIOD_S", 30)
 )
+
+EXPONENTIAL_BACKOFF_FACTOR = float(os.environ.get("EXPONENTIAL_BACKOFF_FACTOR", 2.0))
+MAX_BACKOFF_TIME_S = int(os.environ.get("SERVE_MAX_BACKOFF_TIME_S", 64))
 
 ALL_REPLICA_STATES = list(ReplicaState)
 _SCALING_LOG_ENABLED = os.environ.get("SERVE_ENABLE_SCALING_LOG", "0") != "0"
@@ -210,11 +211,14 @@ class ActorReplicaWrapper:
         # the non-detached case.
         self._actor_handle: ActorHandle = None
 
+        self._pid: int = None
+        self._actor_id: str = None
         if isinstance(scheduling_strategy, NodeAffinitySchedulingStrategy):
             self._node_id = scheduling_strategy.node_id
         else:
             # Populated after replica is allocated.
             self._node_id: str = None
+        self._node_ip: str = None
 
         # Populated in self.stop().
         self._graceful_shutdown_ref: ObjectRef = None
@@ -258,9 +262,24 @@ class ActorReplicaWrapper:
         return self._max_concurrent_queries
 
     @property
+    def pid(self) -> Optional[int]:
+        """Returns the pid of the actor, None if not started."""
+        return self._pid
+
+    @property
+    def actor_id(self) -> Optional[str]:
+        """Returns the actor id, None if not started."""
+        return self._actor_id
+
+    @property
     def node_id(self) -> Optional[str]:
         """Returns the node id of the actor, None if not placed."""
         return self._node_id
+
+    @property
+    def node_ip(self) -> Optional[str]:
+        """Returns the node ip of the actor, None if not placed."""
+        return self._node_ip
 
     def _check_obj_ref_ready(self, obj_ref: ObjectRef) -> bool:
         ready, _ = ray.wait([obj_ref], timeout=0)
@@ -473,7 +492,9 @@ class ActorReplicaWrapper:
                 )
                 self._health_check_period_s = deployment_config.health_check_period_s
                 self._health_check_timeout_s = deployment_config.health_check_timeout_s
-                self._node_id = ray.get(self._allocated_obj_ref)
+                self._pid, self._actor_id, self._node_id, self._node_ip = ray.get(
+                    self._allocated_obj_ref
+                )
             except Exception:
                 logger.exception(f"Exception in deployment '{self._deployment_name}'")
                 return ReplicaStartupStatus.FAILED, None
@@ -685,6 +706,24 @@ class DeploymentReplica(VersionedReplica):
             actor_handle=self._actor.actor_handle,
             max_concurrent_queries=self._actor.max_concurrent_queries,
             is_cross_language=self._actor.is_cross_language,
+        )
+
+    def get_replica_details(self, state: ReplicaState) -> ReplicaDetails:
+        """Get replica details.
+
+        Args:
+            state: The state of the replica, which is not stored within a
+                DeploymentReplica object
+        """
+        return ReplicaDetails(
+            replica_id=self.replica_tag,
+            state=state,
+            pid=self._actor.pid,
+            actor_name=self._actor._actor_name,
+            actor_id=self._actor.actor_id,
+            node_id=self._actor.node_id,
+            node_ip=self._actor.node_ip,
+            start_time_s=self._start_time,
         )
 
     @property
@@ -978,6 +1017,9 @@ class DeploymentState:
         # DeploymentInfo and bring current deployment to meet new status.
         self._target_state: DeploymentTargetState = DeploymentTargetState.default()
         self._prev_startup_warning: float = time.time()
+        # Exponential backoff when retrying a consistently failing deployment
+        self._last_retry: float = 0.0
+        self._backoff_time_s: int = 1
         self._replica_constructor_retry_counter: int = 0
         self._replicas: ReplicaStateContainer = ReplicaStateContainer()
         self._curr_status_info: DeploymentStatusInfo = DeploymentStatusInfo(
@@ -1068,6 +1110,13 @@ class DeploymentState:
             for replica in self._replicas.get([ReplicaState.RUNNING])
         ]
 
+    def list_replica_details(self) -> List[ReplicaDetails]:
+        return [
+            replica.get_replica_details(state)
+            for state in ReplicaState
+            for replica in self._replicas.get([state])
+        ]
+
     def _notify_running_replicas_changed(self):
         self._long_poll_host.notify_changed(
             (LongPollNamespace.RUNNING_REPLICAS, self._name),
@@ -1103,6 +1152,7 @@ class DeploymentState:
             self._name, DeploymentStatus.UPDATING
         )
         self._replica_constructor_retry_counter = 0
+        self._backoff_time_s = 1
 
         logger.info(f"Deploying new version of deployment {self._name}: {target_state.version}.")
 
@@ -1307,28 +1357,43 @@ class DeploymentState:
             )
             to_add = max(delta_replicas - stopping_replicas, 0)
             if to_add > 0:
+                # Exponential backoff
+                failed_to_start_threshold = min(
+                    MAX_DEPLOYMENT_CONSTRUCTOR_RETRY_COUNT,
+                    self._target_state.num_replicas * 3,
+                )
+                if self._replica_constructor_retry_counter >= failed_to_start_threshold:
+                    # Wait 1, 2, 4, ... seconds before consecutive retries, with random
+                    # offset added to avoid synchronization
+                    if (
+                        time.time() - self._last_retry
+                        < self._backoff_time_s + random.uniform(0, 3)
+                    ):
+                        return replicas_stopped
+
+                self._last_retry = time.time()
                 logger.info(
                     f"Adding {to_add} replica{'s' if to_add > 1 else ''} "
                     f"to deployment '{self._name}'."
                 )
-            for _ in range(to_add):
-                replica_name = ReplicaName(self._name, get_random_letters())
-                new_deployment_replica = DeploymentReplica(
-                    self._controller_name,
-                    self._detached,
-                    replica_name.replica_tag,
-                    replica_name.deployment_tag,
-                    self._target_state.version,
-                )
-                new_deployment_replica.start(
-                    self._target_state.info, self._target_state.version
-                )
+                for _ in range(to_add):
+                    replica_name = ReplicaName(self._name, get_random_letters())
+                    new_deployment_replica = DeploymentReplica(
+                        self._controller_name,
+                        self._detached,
+                        replica_name.replica_tag,
+                        replica_name.deployment_tag,
+                        self._target_state.version,
+                    )
+                    new_deployment_replica.start(
+                        self._target_state.info, self._target_state.version
+                    )
 
-                self._replicas.add(ReplicaState.STARTING, new_deployment_replica)
-                logger.debug(
-                    "Adding STARTING to replica_tag: "
-                    f"{replica_name}, deployment: {self._name}"
-                )
+                    self._replicas.add(ReplicaState.STARTING, new_deployment_replica)
+                    logger.debug(
+                        "Adding STARTING to replica_tag: "
+                        f"{replica_name}, deployment: {self._name}"
+                    )
 
         elif delta_replicas < 0:
             replicas_stopped = True
@@ -1406,10 +1471,10 @@ class DeploymentState:
                     name=self._name,
                     status=DeploymentStatus.UNHEALTHY,
                     message=(
-                        f"The Deployment failed to start {failed_to_start_count} "
-                        "times in a row. This may be due to a problem with the "
-                        "deployment constructor or the initial health check failing. "
-                        "See logs for details."
+                        f"The Deployment failed to start {failed_to_start_count} times "
+                        "in a row. This may be due to a problem with the deployment "
+                        "constructor or the initial health check failing. See logs for "
+                        f"details. Retrying after {self._backoff_time_s} seconds."
                     ),
                 )
                 return False
@@ -1452,6 +1517,7 @@ class DeploymentState:
         """
         slow_replicas = []
         transitioned_to_running = False
+        replicas_failed = False
         for replica in self._replicas.pop(states=[original_state]):
             start_status = replica.check_started()
             if start_status == ReplicaStartupStatus.SUCCEEDED:
@@ -1466,6 +1532,7 @@ class DeploymentState:
                     # Increase startup failure counter if we're tracking it
                     self._replica_constructor_retry_counter += 1
 
+                replicas_failed = True
                 replica.stop(graceful=False)
                 self._replicas.add(ReplicaState.STOPPING, replica)
             elif start_status in [
@@ -1484,6 +1551,21 @@ class DeploymentState:
                     self._replicas.add(ReplicaState.STOPPING, replica)
                 else:
                     self._replicas.add(original_state, replica)
+
+        # If replicas have failed enough times, execute exponential backoff
+        # Wait 1, 2, 4, ... seconds before consecutive retries (or use a custom
+        # backoff factor by setting EXPONENTIAL_BACKOFF_FACTOR)
+        failed_to_start_threshold = min(
+            MAX_DEPLOYMENT_CONSTRUCTOR_RETRY_COUNT,
+            self._target_state.num_replicas * 3,
+        )
+        if (
+            replicas_failed
+            and self._replica_constructor_retry_counter > failed_to_start_threshold
+        ):
+            self._backoff_time_s = min(
+                EXPONENTIAL_BACKOFF_FACTOR * self._backoff_time_s, MAX_BACKOFF_TIME_S
+            )
 
         return slow_replicas, transitioned_to_running
 
@@ -1976,6 +2058,19 @@ class DeploymentStateManager:
             return self._deleted_deployment_metadata[deployment_name]
         else:
             return None
+
+    def get_deployment_details(self, deployment_name: str) -> DeploymentDetails:
+        status_info = self.get_deployment_statuses([deployment_name])[0]
+
+        return DeploymentDetails(
+            name=deployment_name,
+            status=status_info.status,
+            message=status_info.message,
+            deployment_config=_deployment_info_to_schema(
+                deployment_name, self.get_deployment(deployment_name)
+            ),
+            replicas=self._deployment_states[deployment_name].list_replica_details(),
+        )
 
     def get_deployment_statuses(
         self, names: List[str] = None

@@ -131,7 +131,12 @@ Enabling Streaming Ingest
 Shuffling Data
 ~~~~~~~~~~~~~~
 
-Shuffling or data randomization is important for training high-quality models. By default, AIR will randomize the order the data files (blocks) are read from. AIR also offers options for further randomizing data records within each file:
+Shuffling or data randomization is important for training high-quality models.
+
+By default, AIR shuffles the assignment of data blocks (files) to dataset shards between epochs. You can disable this behavior by setting
+``randomize_block_order`` to ``False`` in your :class:`~ray.air.config.DatasetConfig`.
+
+To randomize data records within a file, perform a local or global shuffle.
 
 .. tabbed:: Local Shuffling
 
@@ -177,6 +182,25 @@ Shuffling or data randomization is important for training high-quality models. B
 
      * you suspect high-quality shuffles may significantly improve model quality; and
      * absolute ingest performance is less of a concern
+
+.. _air-per-epoch-preprocessing:
+
+Applying randomized preprocessing (experimental)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The standard preprocessor passed to the ``Trainer`` is only applied once to the initial dataset when using :ref:`bulk ingest <air-streaming-ingest>`.
+However, in some cases you may want to reapply a preprocessor on each epoch, for example to augment your training dataset with a randomized transform.
+
+To support this use case, AIR offers an additional *per-epoch preprocessor* that gets reapplied on each epoch, after all other preprocessors and right before dataset consumption (e.g., using :meth:`~ray.data.DatasetIterator.iter_batches()`).
+Per-epoch preprocessing also executes in parallel with dataset consumption to reduce pauses in dataset consumption.
+
+This example shows how to use this feature to apply a randomized preprocessor on top of the standard preprocessor.
+
+.. literalinclude:: doc_code/air_ingest.py
+    :language: python
+    :start-after: __config_6__
+    :end-before: __config_6_end__
+
 
 .. _air-splitting-aux-datasets:
 
@@ -393,7 +417,7 @@ Performance Tips
 Dataset Sharing
 ~~~~~~~~~~~~~~~
 
-When you pass Datasets to a Tuner, Datasets are executed independently per-trial. This could potentially duplicate data reads in the cluster. To share Dataset blocks between trials, call ``ds = ds.fully_executed()`` prior to passing the Dataset to the Tuner. This ensures that the initial read operation will not be repeated per trial.
+When you pass Datasets to a Tuner, Datasets are executed independently per-trial. This could potentially duplicate data reads in the cluster. To share Dataset blocks between trials, call ``ds = ds.cache()`` prior to passing the Dataset to the Tuner. This ensures that the initial read operation will not be repeated per trial.
 
 
 FAQ

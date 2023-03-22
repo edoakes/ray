@@ -40,7 +40,7 @@ export const RecentJobsCard = ({ className }: RecentJobsCardProps) => {
   const classes = useStyles();
 
   const { jobList } = useJobList();
-  const sortedJobs = _.orderBy(jobList, ["startTime"], ["desc"]).slice(0, 4);
+  const sortedJobs = _.orderBy(jobList, ["startTime"], ["desc"]).slice(0, 6);
 
   return (
     <OverviewCard className={classNames(classes.root, className)}>
@@ -57,7 +57,7 @@ export const RecentJobsCard = ({ className }: RecentJobsCardProps) => {
           <Typography variant="h4">No jobs yet...</Typography>
         )}
       </div>
-      <LinkWithArrow text="View all jobs" to="/new/jobs" />
+      <LinkWithArrow text="View all jobs" to="/jobs" />
     </OverviewCard>
   );
 };
@@ -147,7 +147,7 @@ const RecentJobListItem = ({ job, className }: RecentJobListItemProps) => {
   })();
   return (
     <div className={className}>
-      <Link className={classes.root} to={`/new/jobs/${job.job_id}`}>
+      <Link className={classes.root} to={`/jobs/${job.job_id}`}>
         {icon}
         <div className={classes.textContainer}>
           <Typography className={classes.title} variant="body2">
