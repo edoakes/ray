@@ -1,0 +1,4 @@
+import_path: app:a
+deployments:
+  - name: A
+    num_replicas: 2

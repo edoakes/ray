@@ -123,6 +123,8 @@ class ServeController:
         # at any given time.
         self.write_lock = asyncio.Lock()
 
+        self.done_recovering_event = asyncio.Event()
+
         self.long_poll_host = LongPollHost()
 
         if _disable_http_proxy:
@@ -201,6 +203,9 @@ class ServeController:
               determine whether or not the host should immediately return the
               data or wait for the value to be changed.
         """
+        if not self.done_recovering_event.is_set():
+            await self.done_recovering_event.wait()
+
         return await (self.long_poll_host.listen_for_change(keys_to_snapshot_ids))
 
     async def listen_for_change_java(self, keys_to_snapshot_ids_bytes: bytes):
@@ -210,6 +215,9 @@ class ServeController:
             keys_to_snapshot_ids_bytes (Dict[str, int]): the protobuf bytes of
               keys_to_snapshot_ids (Dict[str, int]).
         """
+        if not self.done_recovering_event.is_set():
+            await self.done_recovering_event.wait()
+
         return await (
             self.long_poll_host.listen_for_change_java(keys_to_snapshot_ids_bytes)
         )
@@ -259,11 +267,15 @@ class ServeController:
             async with self.write_lock:
                 if self.http_state:
                     try:
+                        # XXX: don't do this while recovering?
                         self.http_state.update()
                     except Exception:
                         logger.exception("Exception updating HTTP state.")
                 try:
-                    self.deployment_state_manager.update()
+                    recovering = self.deployment_state_manager.update()
+                    if not recovering and not self.done_recovering_event.is_set():
+                        logger.info("Done recovering!!!")
+                        self.done_recovering_event.set()
                 except Exception:
                     logger.exception("Exception updating deployment state.")
                 try:
