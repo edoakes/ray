@@ -108,7 +108,7 @@ class ServeController:
         controller_name: str,
         *,
         http_config: HTTPOptions,
-        head_node_id: str,
+        head_node_id: str, # TODO: remove this!!!
         detached: bool = False,
         _disable_http_proxy: bool = False,
     ):
@@ -186,7 +186,9 @@ class ServeController:
         run_background_task(self.run_control_loop())
 
         self._recover_config_from_checkpoint()
-        self._head_node_id = head_node_id
+        # TODO(verify): We assume the controller runs on the head node.
+        # Call ray.nodes() and check that this node_id has the head node resource.
+        self._head_node_id = ray.get_runtime_context().get_node_id()
         self._active_nodes = set()
         self._update_active_nodes()
 
@@ -290,7 +292,10 @@ class ServeController:
         """
         new_active_nodes = self.deployment_state_manager.get_active_node_ids()
         new_active_nodes.add(self._head_node_id)
+        print("HEAD NODE ID:", self._head_node_id)
+        print("GOT ACTIVE NODES", new_active_nodes)
         if self._active_nodes != new_active_nodes:
+            print("ACTIVE NODES CHANGED")
             self._active_nodes = new_active_nodes
             self.long_poll_host.notify_changed(
                 LongPollNamespace.ACTIVE_NODES, self._active_nodes

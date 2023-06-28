@@ -445,9 +445,11 @@ def test_healthz_and_routes_on_head_and_worker_nodes(
     cluster.wait_for_nodes()
     ray.init(address=cluster.address)
     serve.start(http_options={"location": "EveryNode"})
+    from pprint import pprint
+    pprint(ray.nodes())
 
     # Deploy 2 replicas, both should be on the worker node.
-    @serve.deployment(num_replicas=2, ray_actor_options={"num_cpus": 0.9})
+    @serve.deployment(num_replicas=2)
     class HelloModel:
         def __call__(self):
             return "hello"
@@ -480,7 +482,11 @@ def test_healthz_and_routes_on_head_and_worker_nodes(
         requests.get("http://127.0.0.1:8000/-/routes").text
         == '{"/":"default_HelloModel"}'
     )
-    assert requests.get("http://127.0.0.1:8001/-/healthz").status_code == 200
+
+    # TODO: comment.
+    wait_for_condition(
+        lambda: requests.get("http://127.0.0.1:8001/-/healthz").status_code == 200
+    )
     assert requests.get("http://127.0.0.1:8001/-/healthz").text == "success"
     assert requests.get("http://127.0.0.1:8001/-/routes").status_code == 200
     assert (

@@ -281,6 +281,7 @@ class HTTPProxy:
         draining flag accordingly. Also, log a message when the draining flag is
         changed.
         """
+        print("IN PROXY", self._node_id, active_nodes, self._node_id in active_nodes)
         draining = self._node_id not in active_nodes
         if draining != self._draining:
             logger.info(f"Setting draining flag on node {self._node_id} to {draining}.")

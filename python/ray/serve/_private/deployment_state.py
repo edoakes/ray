@@ -564,6 +564,7 @@ class ActorReplicaWrapper:
                     self._node_ip,
                     self._log_file_path,
                 ) = ray.get(self._allocated_obj_ref)
+                print("REPLICA ON node_id:", self._node_id)
             except RayTaskError as e:
                 logger.exception(
                     f"Exception in replica '{self._replica_tag}', "
@@ -1239,7 +1240,7 @@ class DeploymentState:
             ReplicaState.RECOVERING,
             ReplicaState.RUNNING,
         ]
-        return {replica.actor_node_id for replica in self._replicas.get(active_states)}
+        return {replica.actor_node_id for replica in self._replicas.get(active_states) if replica.actor_node_id is not None}
 
     def list_replica_details(self) -> List[ReplicaDetails]:
         return [replica.actor_details for replica in self._replicas.get()]

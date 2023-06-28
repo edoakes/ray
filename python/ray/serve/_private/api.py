@@ -148,6 +148,8 @@ def _start_controller(
 
     # Used for scheduling things to the head node explicitly.
     # Assumes that `serve.start` runs on the head node.
+    # TODO: this needs to be moved to inside the controller.
+    # In the controller, get `ray.nodes()` and filter based on head node resource.
     head_node_id = ray.get_runtime_context().get_node_id()
     controller_actor_options = {
         "num_cpus": 1 if dedicated_cpu else 0,
