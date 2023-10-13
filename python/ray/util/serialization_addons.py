@@ -58,25 +58,8 @@ def register_pydantic_serializer(serialization_context):
 
 
 @DeveloperAPI
-def register_starlette_serializer(serialization_context):
-    try:
-        import starlette.datastructures
-    except ImportError:
-        return
-
-    # Starlette's app.state object is not serializable
-    # because it overrides __getattr__
-    serialization_context._register_cloudpickle_serializer(
-        starlette.datastructures.State,
-        custom_serializer=lambda s: s._state,
-        custom_deserializer=lambda s: starlette.datastructures.State(s),
-    )
-
-
-@DeveloperAPI
 def apply(serialization_context):
     register_pydantic_serializer(serialization_context)
-    register_starlette_serializer(serialization_context)
 
     if sys.platform != "win32":
         from ray._private.arrow_serialization import (
