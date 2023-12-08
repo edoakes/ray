@@ -60,10 +60,8 @@ logger = logging.getLogger(__file__)
 
 @PublicAPI(stability="stable")
 def start(
-    detached: bool = True,
     proxy_location: Union[None, str, ProxyLocation] = None,
     http_options: Union[None, dict, HTTPOptions] = None,
-    dedicated_cpu: bool = False,
     grpc_options: Union[None, dict, gRPCOptions] = None,
     system_logging_config: Union[None, dict, LoggingConfig] = None,
     **kwargs,
@@ -92,19 +90,6 @@ def start(
         system_logging_config: logging config options for the serve component (
             controller & proxy).
     """
-
-    if detached is not True:
-        raise ValueError(
-            "`detached=False` is no longer supported. "
-            "In a future release, it will be removed altogether."
-        )
-
-    if dedicated_cpu is not False:
-        raise ValueError(
-            "`dedicated_cpu=True` is no longer supported. "
-            "In a future release, it will be removed altogether."
-        )
-
     if proxy_location is None:
         if http_options is None:
             http_options = HTTPOptions(location=DeploymentMode.EveryNode)
