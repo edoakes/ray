@@ -1478,7 +1478,8 @@ void WorkerPool::PopWorker(std::shared_ptr<PopWorkerRequest> pop_worker_request)
     return;
   }
   RAY_CHECK(worker->GetAssignedJobId().IsNil() ||
-            worker->GetAssignedJobId() == pop_worker_request->job_id);
+            worker->GetAssignedJobId() == pop_worker_request->job_id ||
+            pop_worker_request->root_detached_actor_id.IsNil());
   stats::NumWorkersStartedFromCache.Record(1);
   PopWorkerCallbackAsync(pop_worker_request->callback, worker, PopWorkerStatus::OK);
 }
