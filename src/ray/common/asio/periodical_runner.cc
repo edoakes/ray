@@ -108,9 +108,8 @@ void PeriodicalRunner::DoRunFnPeriodicallyInstrumented(
   // which the handler was elgible to execute on the event loop but was queued by the
   // event loop.
   std::stringstream stats_name;
-  stats_name << name << "(every " << ns_to_ms_str(period.total_nanoseconds()) << ")";
-  auto stats_handle =
-      io_service_.stats().RecordStart(stats_name.str(), false);
+  stats_name << name << " (every " << ns_to_ms_str(period.total_nanoseconds(), 0) << ")";
+  auto stats_handle = io_service_.stats().RecordStart(stats_name.str(), false);
   timer->async_wait(
       [weak_self = weak_from_this(),
        fn = std::move(fn),

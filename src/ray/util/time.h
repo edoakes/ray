@@ -16,6 +16,7 @@
 
 #include <chrono>
 #include <optional>
+#include <string>
 
 namespace ray {
 
@@ -56,6 +57,6 @@ inline int64_t current_sys_time_s() {
 std::optional<std::chrono::steady_clock::time_point> ToTimeoutPoint(int64_t timeout_ms);
 
 /// Convert the duration in nanoseconds to a string of the format: X.YZms.
-std::string ns_to_ms_str(double duration_ns);
+std::string ns_to_ms_str(double duration_ns, int precision = 2);
 
 }  // namespace ray

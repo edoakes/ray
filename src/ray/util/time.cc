@@ -31,10 +31,10 @@ std::optional<std::chrono::steady_clock::time_point> ToTimeoutPoint(int64_t time
   return timeout_point;
 }
 
-std::string ns_to_ms_str(double duration_ns) {
+std::string ns_to_ms_str(double duration_ns, int precision) {
   double duration_ms = duration_ns / std::pow(1000, 2);
   std::stringstream result;
-  result << std::fixed << std::setprecision(2) << duration_ms << "ms";
+  result << std::fixed << std::setprecision(precision) << duration_ms << "ms";
   return result.str();
 }
 

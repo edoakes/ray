@@ -62,13 +62,12 @@ std::shared_ptr<StatsHandle> EventTracker::RecordStart(
                                                     event_context_name.value_or(name));
   }
 
-  return std::make_shared<StatsHandle>(
-      std::move(name),
-      ray::current_time_ns(),
-      std::move(stats),
-      global_stats_,
-      emit_metrics,
-      event_context_name);
+  return std::make_shared<StatsHandle>(std::move(name),
+                                       ray::current_time_ns(),
+                                       std::move(stats),
+                                       global_stats_,
+                                       emit_metrics,
+                                       event_context_name);
 }
 
 void EventTracker::RecordEnd(std::shared_ptr<StatsHandle> handle) {
@@ -234,11 +233,14 @@ std::string EventTracker::StatsString() const {
     double cum_count_d = static_cast<double>(entry.second.cum_count);
     double cum_queue_time_d = static_cast<double>(entry.second.cum_queue_time);
     event_stats_stream
-        << "), Execution time: mean = " << ray::ns_to_ms_str(cum_execution_time_d / cum_count_d)
+        << "), Execution time: mean = "
+        << ray::ns_to_ms_str(cum_execution_time_d / cum_count_d)
         << ", total = " << ray::ns_to_ms_str(cum_execution_time_d)
         << ", Queueing time: mean = " << ray::ns_to_ms_str(cum_queue_time_d / cum_count_d)
-        << ", max = " << ray::ns_to_ms_str(static_cast<double>(entry.second.max_queue_time))
-        << ", min = " << ray::ns_to_ms_str(static_cast<double>(entry.second.min_queue_time))
+        << ", max = "
+        << ray::ns_to_ms_str(static_cast<double>(entry.second.max_queue_time))
+        << ", min = "
+        << ray::ns_to_ms_str(static_cast<double>(entry.second.min_queue_time))
         << ", total = " << ray::ns_to_ms_str(cum_queue_time_d);
   }
   const auto global_stats = get_global_stats();
@@ -247,7 +249,7 @@ std::string EventTracker::StatsString() const {
                << " active)";
   stats_stream << "\nQueueing time: mean = "
                << ray::ns_to_ms_str(static_cast<double>(global_stats.cum_queue_time) /
-                            static_cast<double>(cum_count))
+                                    static_cast<double>(cum_count))
                << ", max = "
                << ray::ns_to_ms_str(static_cast<double>(global_stats.max_queue_time))
                << ", min = "
@@ -256,8 +258,9 @@ std::string EventTracker::StatsString() const {
                << ray::ns_to_ms_str(static_cast<double>(global_stats.cum_queue_time));
   stats_stream << "\nExecution time:  mean = "
                << ray::ns_to_ms_str(static_cast<double>(cum_execution_time) /
-                            static_cast<double>(cum_count))
-               << ", total = " << ray::ns_to_ms_str(static_cast<double>(cum_execution_time));
+                                    static_cast<double>(cum_count))
+               << ", total = "
+               << ray::ns_to_ms_str(static_cast<double>(cum_execution_time));
   stats_stream << "\nEvent stats:";
   stats_stream << event_stats_stream.rdbuf();
   return stats_stream.str();
