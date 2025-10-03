@@ -114,9 +114,7 @@ class EventTracker {
   /// RecordExecution() or RecordEnd() call.
   ///
   /// \param name A human-readable name to which collected stats will be associated for
-  /// logging. \param expected_queueing_delay_ns How much to pad the observed queueing
-  /// start time,
-  ///  in nanoseconds.
+  /// logging.
   ///  \param emit_metrics Emit the underlying stat as a service metric
   ///  \param event_context_name A human-readable name to which collected stats will be
   ///  associated for metrics.
@@ -124,7 +122,6 @@ class EventTracker {
   std::shared_ptr<StatsHandle> RecordStart(
       std::string name,
       bool emit_metrics = false,
-      int64_t expected_queueing_delay_ns = 0,
       const std::optional<std::string> &event_context_name = std::nullopt);
 
   /// Records stats about the provided function's execution. This is used in conjunction

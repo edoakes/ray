@@ -20,6 +20,7 @@
 
 #include "ray/common/ray_config.h"
 #include "ray/util/logging.h"
+#include "ray/util/time.h"
 
 namespace ray {
 
@@ -106,8 +107,10 @@ void PeriodicalRunner::DoRunFnPeriodicallyInstrumented(
   // NOTE: We add the timer period to the enqueue time in order only measure the time in
   // which the handler was elgible to execute on the event loop but was queued by the
   // event loop.
+  std::stringstream stats_name;
+  stats_name << name << "(every " << ns_to_ms_str(period.total_nanoseconds()) << ")";
   auto stats_handle =
-      io_service_.stats().RecordStart(name, false, period.total_nanoseconds());
+      io_service_.stats().RecordStart(stats_name.str(), false);
   timer->async_wait(
       [weak_self = weak_from_this(),
        fn = std::move(fn),

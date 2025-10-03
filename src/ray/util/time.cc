@@ -14,6 +14,10 @@
 
 #include "ray/util/time.h"
 
+#include <cmath>
+#include <iomanip>
+#include <sstream>
+
 namespace ray {
 
 std::optional<std::chrono::steady_clock::time_point> ToTimeoutPoint(int64_t timeout_ms) {
@@ -25,6 +29,13 @@ std::optional<std::chrono::steady_clock::time_point> ToTimeoutPoint(int64_t time
   auto timeout_duration = std::chrono::milliseconds(timeout_ms);
   timeout_point.emplace(now + timeout_duration);
   return timeout_point;
+}
+
+std::string ns_to_ms_str(double duration_ns) {
+  double duration_ms = duration_ns / std::pow(1000, 2);
+  std::stringstream result;
+  result << std::fixed << std::setprecision(2) << duration_ms << "ms";
+  return result.str();
 }
 
 }  // namespace ray

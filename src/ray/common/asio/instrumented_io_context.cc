@@ -104,7 +104,7 @@ void instrumented_io_context::post(std::function<void()> handler,
     // handler stats it->second from multiple threads without acquiring a table-level
     // readers lock in the callback.
     auto stats_handle =
-        event_stats_->RecordStart(std::move(name), emit_metrics_, 0, context_name_);
+        event_stats_->RecordStart(std::move(name), emit_metrics_, context_name_);
     handler = [handler = std::move(handler),
                stats_handle = std::move(stats_handle)]() mutable {
       EventTracker::RecordExecution(handler, std::move(stats_handle));
@@ -123,7 +123,7 @@ void instrumented_io_context::dispatch(std::function<void()> handler, std::strin
     return boost::asio::post(*this, std::move(handler));
   }
   auto stats_handle =
-      event_stats_->RecordStart(std::move(name), emit_metrics_, 0, context_name_);
+      event_stats_->RecordStart(std::move(name), emit_metrics_, context_name_);
   // References are only invalidated upon deletion of the corresponding item from the
   // table, which we won't do until this io_context is deleted. Provided that
   // GuardedHandlerStats synchronizes internal access, we can concurrently write to the
