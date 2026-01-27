@@ -392,8 +392,7 @@ CoreWorker::CoreWorker(
         *task_event_buffer_,
         execute_task,
         *actor_task_execution_arg_waiter_,
-        options_.initialize_thread_callback,
-        [this] { return raylet_ipc_client_->ActorCreationTaskDone(); });
+        options_.initialize_thread_callback);
   }
 
   RegisterToGcs(options_.worker_launch_time_ms, options_.worker_launched_time_ms);
