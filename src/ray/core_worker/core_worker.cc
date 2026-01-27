@@ -387,12 +387,11 @@ CoreWorker::CoreWorker(
           RAY_CHECK_OK(raylet_ipc_client_->WaitForActorCallArgs(args, tag))
               << "WaitForActorCallArgs IPC failed unexpectedly";
         });
-    task_receiver_ = std::make_unique<TaskReceiver>(
-        task_execution_service_,
-        *task_event_buffer_,
-        execute_task,
-        *actor_task_execution_arg_waiter_,
-        options_.initialize_thread_callback);
+    task_receiver_ = std::make_unique<TaskReceiver>(task_execution_service_,
+                                                    *task_event_buffer_,
+                                                    execute_task,
+                                                    *actor_task_execution_arg_waiter_,
+                                                    options_.initialize_thread_callback);
   }
 
   RegisterToGcs(options_.worker_launch_time_ms, options_.worker_launched_time_ms);
