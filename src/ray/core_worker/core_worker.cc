@@ -381,7 +381,8 @@ CoreWorker::CoreWorker(
                                   std::placeholders::_5,
                                   std::placeholders::_6,
                                   std::placeholders::_7,
-                                  std::placeholders::_8);
+                                  std::placeholders::_8,
+                                  std::placeholders::_9);
     actor_task_execution_arg_waiter_ = std::make_unique<ActorTaskExecutionArgWaiter>(
         [this](const std::vector<rpc::ObjectReference> &args, int64_t tag) {
           RAY_CHECK_OK(raylet_ipc_client_->WaitForActorCallArgs(args, tag))
