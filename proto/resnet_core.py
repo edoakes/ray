@@ -3,6 +3,7 @@ import os
 import random
 import time
 import uuid
+from collections import defaultdict
 from typing import Dict
 
 import boto3
@@ -21,15 +22,14 @@ from torchvision.models import ResNet18_Weights, resnet18
 from util import parse_s3_uri
 
 BATCH_SIZE = 100
-NUM_GPU_NODES = 8
 
-NUM_READ_ACTORS = NUM_GPU_NODES * 24
+READ_ACTORS_PER_NODE = 24
 READ_ACTOR_CONCURRENCY = 4
-NUM_PREPROCESS_ACTORS = NUM_GPU_NODES * 6
+PREPROCESS_ACTORS_PER_NODE = 6
 PREPROCESS_ACTOR_CONCURRENCY = 4
-NUM_INFERENCE_ACTORS = NUM_GPU_NODES * 1
+INFERENCE_ACTORS_PER_NODE = 1
 INFERENCE_ACTOR_CONCURRENCY = 3
-NUM_WRITE_ACTORS = NUM_GPU_NODES * 1
+WRITE_ACTORS_PER_NODE = 1
 WRITE_ACTOR_CONCURRENCY = 4
 
 INPUT_PATH = "s3://anonymous@ray-example-data/imagenet/metadata_file.parquet"
@@ -42,6 +42,7 @@ INPUT_LIMIT = 800_000
 class ReadActor:
     def __init__(self):
         self._s3 = pafs.S3FileSystem(anonymous=True, region="us-west-2")
+
 
     def read(self, image_urls: list) -> list:
         results = []
@@ -60,6 +61,7 @@ class PreprocessActor:
             [transforms.ToTensor(), weights.transforms()]
         )
 
+
     def preprocess(self, inputs: list) -> list:
         results = []
         for inp in inputs:
@@ -76,6 +78,7 @@ class InferenceActor:
         self._device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self._model = resnet18(weights=self._weights).to(self._device)
         self._model.eval()
+
 
     def predict(self, inputs: list) -> list:
         batch_tensor = torch.from_numpy(
@@ -99,6 +102,7 @@ class WriteActor:
         self._bucket = bucket
         self._output_dir = output_dir
         self._s3 = boto3.client("s3", config=Config(max_pool_connections=64))
+
 
     def write(self, inputs: list) -> str:
         table = pa.table({
@@ -129,12 +133,47 @@ image_urls = input_table.column("image_url").to_pylist()[:INPUT_LIMIT]
 
 output_bucket, output_dir = parse_s3_uri(OUTPUT_PATH)
 
-read_actors = [ReadActor.remote() for _ in range(NUM_READ_ACTORS)]
-preprocess_actors = [PreprocessActor.remote() for _ in range(NUM_PREPROCESS_ACTORS)]
-inference_actors = [InferenceActor.remote() for _ in range(NUM_INFERENCE_ACTORS)]
-write_actors = [
-    WriteActor.remote(output_bucket, output_dir) for _ in range(NUM_WRITE_ACTORS)
+# Get alive GPU node IDs and place actors evenly across them.
+node_ids = [
+    n["NodeID"] for n in ray.nodes()
+    if n["Alive"] and n["Resources"].get("GPU", 0) > 0
 ]
+print(f"Found {len(node_ids)} GPU nodes")
+
+actor_to_node = {}
+read_actors = []
+preprocess_actors = []
+inference_actors = []
+write_actors = []
+read_actors_by_node = defaultdict(list)
+preprocess_actors_by_node = defaultdict(list)
+inference_actors_by_node = defaultdict(list)
+write_actors_by_node = defaultdict(list)
+
+for node_id in node_ids:
+    label = {"ray.io/node-id": node_id}
+    for _ in range(READ_ACTORS_PER_NODE):
+        a = ReadActor.options(label_selector=label).remote()
+        read_actors.append(a)
+        read_actors_by_node[node_id].append(a)
+        actor_to_node[a] = node_id
+    for _ in range(PREPROCESS_ACTORS_PER_NODE):
+        a = PreprocessActor.options(label_selector=label).remote()
+        preprocess_actors.append(a)
+        preprocess_actors_by_node[node_id].append(a)
+        actor_to_node[a] = node_id
+    for _ in range(INFERENCE_ACTORS_PER_NODE):
+        a = InferenceActor.options(label_selector=label).remote()
+        inference_actors.append(a)
+        inference_actors_by_node[node_id].append(a)
+        actor_to_node[a] = node_id
+    for _ in range(WRITE_ACTORS_PER_NODE):
+        a = WriteActor.options(label_selector=label).remote(output_bucket, output_dir)
+        write_actors.append(a)
+        write_actors_by_node[node_id].append(a)
+        actor_to_node[a] = node_id
+
+ref_to_node = {}  # ObjectRef -> node_id
 
 inputs = [
     image_urls[i:i + BATCH_SIZE] for i in range(0, len(image_urls), BATCH_SIZE)
@@ -199,44 +238,61 @@ while True:
         done_writes.add(r)
 
     # Submit reads.
-    target_reads = 2 * NUM_READ_ACTORS * READ_ACTOR_CONCURRENCY
+    target_reads = 2 * len(read_actors) * READ_ACTOR_CONCURRENCY
     reads_to_submit = target_reads - (len(pending_reads) + len(done_reads))
     for _ in range(reads_to_submit):
         if not inputs:
             break
         read_actor = random.choice(read_actors)
-        pending_reads.add(read_actor.read.remote(inputs.pop(0)))
+        ref = read_actor.read.remote(inputs.pop(0))
+        ref_to_node[ref] = actor_to_node[read_actor]
+        pending_reads.add(ref)
 
     # Submit preprocesses.
-    target_preprocesses = 2 * NUM_PREPROCESS_ACTORS * PREPROCESS_ACTOR_CONCURRENCY
+    target_preprocesses = 2 * len(preprocess_actors) * PREPROCESS_ACTOR_CONCURRENCY
     preprocesses_to_submit = target_preprocesses - (
         len(pending_preprocesses) + len(done_preprocesses)
     )
     for _ in range(preprocesses_to_submit):
         if not done_reads:
             break
-        preprocess_actor = random.choice(preprocess_actors)
-        pending_preprocesses.add(preprocess_actor.preprocess.remote(done_reads.pop()))
+        in_ref = done_reads.pop()
+        node = ref_to_node.pop(in_ref)
+        local = preprocess_actors_by_node.get(node)
+        actor = random.choice(local if local else preprocess_actors)
+        ref = actor.preprocess.remote(in_ref)
+        ref_to_node[ref] = actor_to_node[actor]
+        pending_preprocesses.add(ref)
 
     # Submit inferences.
-    target_inferences = 2 * NUM_INFERENCE_ACTORS * INFERENCE_ACTOR_CONCURRENCY
+    target_inferences = 2 * len(inference_actors) * INFERENCE_ACTOR_CONCURRENCY
     inferences_to_submit = target_inferences - (
         len(pending_inferences) + len(done_inferences)
     )
     for _ in range(inferences_to_submit):
         if not done_preprocesses:
             break
-        inference_actor = random.choice(inference_actors)
-        pending_inferences.add(inference_actor.predict.remote(done_preprocesses.pop()))
+        in_ref = done_preprocesses.pop()
+        node = ref_to_node.pop(in_ref)
+        local = inference_actors_by_node.get(node)
+        actor = random.choice(local if local else inference_actors)
+        ref = actor.predict.remote(in_ref)
+        ref_to_node[ref] = actor_to_node[actor]
+        pending_inferences.add(ref)
 
     # Submit writes.
-    target_writes = 2 * NUM_WRITE_ACTORS * WRITE_ACTOR_CONCURRENCY
+    target_writes = 2 * len(write_actors) * WRITE_ACTOR_CONCURRENCY
     writes_to_submit = target_writes - len(pending_writes)
     for _ in range(writes_to_submit):
         if not done_inferences:
             break
-        write_actor = random.choice(write_actors)
-        pending_writes.add(write_actor.write.remote(done_inferences.pop()))
+        in_ref = done_inferences.pop()
+        node = ref_to_node.pop(in_ref)
+        local = write_actors_by_node.get(node)
+        actor = random.choice(local if local else write_actors)
+        ref = actor.write.remote(in_ref)
+        ref_to_node[ref] = actor_to_node[actor]
+        pending_writes.add(ref)
 
 ray.get(list(done_writes))
 print(f"Finished in: {time.time() - start_time_s:.2f}s")
