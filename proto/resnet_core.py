@@ -20,23 +20,25 @@ from torchvision.models import ResNet18_Weights, resnet18
 
 from util import parse_s3_uri
 
-NUM_READ_ACTORS = 30
-READ_ACTOR_CONCURRENCY = 4
-NUM_PREPROCESS_ACTORS = 8
-PREPROCESS_ACTOR_CONCURRENCY = 4
-NUM_INFERENCE_ACTORS = 1
-INFERENCE_ACTOR_CONCURRENCY = 2
-NUM_WRITE_ACTORS = 2
-WRITE_ACTOR_CONCURRENCY = 2
-
 BATCH_SIZE = 100
+NUM_GPU_NODES = 8
+
+NUM_READ_ACTORS = NUM_GPU_NODES * 24
+READ_ACTOR_CONCURRENCY = 4
+NUM_PREPROCESS_ACTORS = NUM_GPU_NODES * 6
+PREPROCESS_ACTOR_CONCURRENCY = 4
+NUM_INFERENCE_ACTORS = NUM_GPU_NODES * 1
+INFERENCE_ACTOR_CONCURRENCY = 3
+NUM_WRITE_ACTORS = NUM_GPU_NODES * 1
+WRITE_ACTOR_CONCURRENCY = 4
 
 INPUT_PATH = "s3://anonymous@ray-example-data/imagenet/metadata_file.parquet"
 OUTPUT_PATH = "s3://anyscale-staging-data-cld-kvedzwag2qa8i5bjxuevf5i7/org_7c1Kalm9WcX2bNIjW53GUT/cld_kvedZWag2qA8i5BjxUevf5i7/artifact_storage/eoakes-resnet-core"
-INPUT_LIMIT = 803_580
+INPUT_LIMIT = 800_000
+# INPUT_LIMIT = 100_000
 
 
-@ray.remote(num_cpus=0, max_concurrency=READ_ACTOR_CONCURRENCY)
+@ray.remote(max_concurrency=READ_ACTOR_CONCURRENCY)
 class ReadActor:
     def __init__(self):
         self._s3 = pafs.S3FileSystem(anonymous=True, region="us-west-2")
@@ -61,7 +63,7 @@ class PreprocessActor:
     def preprocess(self, inputs: list) -> list:
         results = []
         for inp in inputs:
-            image = Image.open(io.BytesIO(inp["bytes"])).convert("RGB")
+            image = Image.open(pa.BufferReader(inp["bytes"])).convert("RGB")
             tensor = self._transform(image).numpy()
             results.append({"image_url": inp["image_url"], "tensor": tensor})
         return results
@@ -168,6 +170,7 @@ while True:
 
     if not last_print_time_s or time.time() - last_print_time_s > 1:
         last_print_time_s = time.time()
+        print("==================== PROGRESS ====================")
         print("inputs remaining:", len(inputs))
         print("pending_reads:", len(pending_reads))
         print("done_reads:", len(done_reads))
@@ -177,6 +180,7 @@ while True:
         print("done_inferences:", len(done_inferences))
         print("pending_writes:", len(pending_writes))
         print("done_writes:", len(done_writes))
+        print("==================================================")
 
     for r in ray.wait(list(pending_reads), timeout=0, fetch_local=False)[0]:
         pending_reads.remove(r)
@@ -235,5 +239,4 @@ while True:
         pending_writes.add(write_actor.write.remote(done_inferences.pop()))
 
 ray.get(list(done_writes))
-print(f"Finished in {time.time() - start_time_s:.2f}s")
-print(f"Outputs written to {OUTPUT_PATH}")
+print(f"Finished in: {time.time() - start_time_s:.2f}s")
