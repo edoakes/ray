@@ -1,25 +1,22 @@
 import io
 import os
-import random
 import time
 import uuid
 from collections import defaultdict
-from typing import Dict
 
 import boto3
-from botocore.config import Config
 import numpy as np
 import pyarrow as pa
-import pyarrow.parquet as pq
 import pyarrow.fs as pafs
-import ray
-import requests
+import pyarrow.parquet as pq
 import torch
+from botocore.config import Config
 from PIL import Image
 from torchvision import transforms
 from torchvision.models import ResNet18_Weights, resnet18
-
 from util import parse_s3_uri
+
+import ray
 
 BATCH_SIZE = 100
 
@@ -43,7 +40,6 @@ class ReadActor:
     def __init__(self):
         self._s3 = pafs.S3FileSystem(anonymous=True, region="us-west-2")
 
-
     def read(self, image_urls: list) -> list:
         results = []
         for image_url in image_urls:
@@ -60,7 +56,6 @@ class PreprocessActor:
         self._transform = transforms.Compose(
             [transforms.ToTensor(), weights.transforms()]
         )
-
 
     def preprocess(self, inputs: list) -> list:
         results = []
@@ -79,11 +74,10 @@ class InferenceActor:
         self._model = resnet18(weights=self._weights).to(self._device)
         self._model.eval()
 
-
     def predict(self, inputs: list) -> list:
-        batch_tensor = torch.from_numpy(
-            np.stack([inp["tensor"] for inp in inputs])
-        ).to(self._device)
+        batch_tensor = torch.from_numpy(np.stack([inp["tensor"] for inp in inputs])).to(
+            self._device
+        )
         with torch.inference_mode():
             predictions = self._model(batch_tensor)
             predicted_classes = predictions.argmax(dim=1).detach().cpu().tolist()
@@ -103,12 +97,13 @@ class WriteActor:
         self._output_dir = output_dir
         self._s3 = boto3.client("s3", config=Config(max_pool_connections=64))
 
-
     def write(self, inputs: list) -> str:
-        table = pa.table({
-            "image_url": [inp["image_url"] for inp in inputs],
-            "label": [inp["label"] for inp in inputs],
-        })
+        table = pa.table(
+            {
+                "image_url": [inp["image_url"] for inp in inputs],
+                "label": [inp["label"] for inp in inputs],
+            }
+        )
         buf = io.BytesIO()
         pq.write_table(table, buf)
         output_key = os.path.join(self._output_dir, f"{uuid.uuid4().hex}.parquet")
@@ -135,8 +130,7 @@ output_bucket, output_dir = parse_s3_uri(OUTPUT_PATH)
 
 # Get alive GPU node IDs and place actors evenly across them.
 node_ids = [
-    n["NodeID"] for n in ray.nodes()
-    if n["Alive"] and n["Resources"].get("GPU", 0) > 0
+    n["NodeID"] for n in ray.nodes() if n["Alive"] and n["Resources"].get("GPU", 0) > 0
 ]
 print(f"Found {len(node_ids)} GPU nodes")
 
@@ -182,9 +176,7 @@ MAX_PER_PREPROCESS = 2 * PREPROCESS_ACTOR_CONCURRENCY
 MAX_PER_INFERENCE = 2 * INFERENCE_ACTOR_CONCURRENCY
 MAX_PER_WRITE = 2 * WRITE_ACTOR_CONCURRENCY
 
-inputs = [
-    image_urls[i:i + BATCH_SIZE] for i in range(0, len(image_urls), BATCH_SIZE)
-]
+inputs = [image_urls[i : i + BATCH_SIZE] for i in range(0, len(image_urls), BATCH_SIZE)]
 num_inputs = len(inputs)
 pending_reads = set()
 done_reads = set()

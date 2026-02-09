@@ -19,6 +19,7 @@ class BinaryFileDatasink(RowBasedFileDatasink):
     def write_row_to_file(self, row, file):
         file.write(row[self.column])
 
+
 class Map:
     def __call__(self, input):
         start_time_s = time.perf_counter()
@@ -27,6 +28,9 @@ class Map:
 
         return input
 
-ray.data.read_binary_files(INPUT_URI).map(Map, concurrency=3).write_datasink(BinaryFileDatasink(OUTPUT_URI))
+
+ray.data.read_binary_files(INPUT_URI).map(Map, concurrency=3).write_datasink(
+    BinaryFileDatasink(OUTPUT_URI)
+)
 print(f"Finished in {time.time()-start_time_s:.2f}s")
 print(f"Outputs written to {OUTPUT_URI}")

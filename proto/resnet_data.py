@@ -2,16 +2,16 @@ from __future__ import annotations
 
 import io
 import time
+import uuid
+
+import numpy as np
 import torch
-from packaging import version
 from PIL import Image
 from torchvision import transforms
 from torchvision.models import ResNet18_Weights, resnet18
-from ray.data.expressions import download
-import numpy as np
-import uuid
-import ray
 
+import ray
+from ray.data.expressions import download
 
 BATCH_SIZE = 100
 NUM_GPU_NODES = 8
@@ -21,6 +21,7 @@ OUTPUT_PATH = "s3://anyscale-staging-data-cld-kvedzwag2qa8i5bjxuevf5i7/org_7c1Ka
 
 weights = ResNet18_Weights.DEFAULT
 transform = transforms.Compose([transforms.ToTensor(), weights.transforms()])
+
 
 def deserialize_image(row):
     image = Image.open(io.BytesIO(row["bytes"])).convert("RGB")

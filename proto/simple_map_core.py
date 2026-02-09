@@ -5,10 +5,9 @@ from typing import Dict
 
 import boto3
 from botocore.config import Config
-import numpy as np
-import ray
-
 from util import list_s3_files, parse_s3_uri
+
+import ray
 
 NUM_READ_ACTORS = 2
 READ_ACTOR_CONCURRENCY = 10
@@ -19,6 +18,7 @@ MAP_ACTOR_CONCURRENCY = 10
 MAP_COMPUTE_TIME_S = 0.01
 INPUT_URI = "s3://doggos-dataset/train"
 OUTPUT_URI = "s3://anyscale-staging-data-cld-kvedzwag2qa8i5bjxuevf5i7/org_7c1Kalm9WcX2bNIjW53GUT/cld_kvedZWag2qA8i5BjxUevf5i7/artifact_storage/eoakes-proto"
+
 
 @ray.remote(max_concurrency=READ_ACTOR_CONCURRENCY)
 class ReadActor:
@@ -32,7 +32,9 @@ class ReadActor:
         assert r["ResponseMetadata"]["HTTPStatusCode"] == 200
         return {"key": os.path.basename(key), "data": r["Body"].read()}
 
+
 s3_client = None
+
 
 @ray.remote
 def read_task(bucket: str, key: str) -> bytes:
@@ -92,6 +94,7 @@ class WriteActor:
         assert r["ResponseMetadata"]["HTTPStatusCode"] == 200
         return f"{self._bucket}/{input['key']}"
 
+
 ray.init()
 start_time_s = time.time()
 
@@ -100,7 +103,9 @@ output_bucket, output_dir = parse_s3_uri(OUTPUT_URI)
 
 read_actors = [ReadActor.remote(input_bucket) for _ in range(NUM_READ_ACTORS)]
 map_actors = [MapActor.remote() for _ in range(NUM_MAP_ACTORS)]
-write_actors = [WriteActor.remote(output_bucket, output_dir) for _ in range(NUM_WRITE_ACTORS)]
+write_actors = [
+    WriteActor.remote(output_bucket, output_dir) for _ in range(NUM_WRITE_ACTORS)
+]
 
 inputs = list(list_s3_files(input_bucket, input_dir))
 num_inputs = len(inputs)
@@ -117,7 +122,15 @@ last_print_time_s = None
 while True:
     time.sleep(0.001)
 
-    if len(inputs) + len(pending_reads) + len(done_reads) + len(pending_maps) + len(done_maps) + len(pending_writes) == 0:
+    if (
+        len(inputs)
+        + len(pending_reads)
+        + len(done_reads)
+        + len(pending_maps)
+        + len(done_maps)
+        + len(pending_writes)
+        == 0
+    ):
         break
 
     if not last_print_time_s or time.time() - last_print_time_s > 1:

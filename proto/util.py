@@ -4,11 +4,13 @@ from urllib.parse import urlparse
 import boto3
 import pyarrow.parquet as pq
 
+
 def parse_s3_uri(uri: str) -> Tuple[str, str]:
     parsed = urlparse(uri)
     bucket = parsed.netloc
     path = parsed.path.lstrip("/")
     return bucket, path
+
 
 def list_s3_files(bucket: str, prefix: str) -> Iterator[str]:
     """
@@ -28,8 +30,11 @@ def list_s3_files(bucket: str, prefix: str) -> Iterator[str]:
         for obj in page.get("Contents", []):
             yield obj["Key"]
 
+
 def read_urls_from_parquet(path: str) -> Dict:
-    table = pq.read_table("s3://anonymous@ray-example-data/imagenet/metadata_file.parquet")
+    table = pq.read_table(
+        "s3://anonymous@ray-example-data/imagenet/metadata_file.parquet"
+    )
     urls = []
     for chunk in table:
         urls.extend(str(url) for url in chunk)

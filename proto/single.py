@@ -2,12 +2,13 @@ from typing import Dict
 
 import boto3
 from botocore.config import Config
-import ray
-
 from util import list_s3_files, parse_s3_uri
+
+import ray
 
 INPUT_URI = "s3://doggos-dataset/train"
 OUTPUT_URI = "s3://anyscale-staging-data-cld-kvedzwag2qa8i5bjxuevf5i7/org_7c1Kalm9WcX2bNIjW53GUT/cld_kvedZWag2qA8i5BjxUevf5i7/artifact_storage/eoakes-test/"
+
 
 @ray.remote(max_concurrency=10)
 class ReadActor:
@@ -44,6 +45,7 @@ class WriteActor:
         )
         return f"{self._bucket}/{input['key']}"
 
+
 input_bucket, input_dir = parse_s3_uri(INPUT_URI)
 output_bucket, output_dir = parse_s3_uri(OUTPUT_URI)
 
@@ -58,7 +60,9 @@ pending_writes = set()
 done_writes = set()
 
 while True:
-    import time;time.sleep(0.01)
+    import time
+
+    time.sleep(0.01)
 
     if len(inputs) + len(pending_reads) + len(done_reads) + len(pending_writes) == 0:
         break
