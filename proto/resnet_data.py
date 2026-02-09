@@ -13,27 +13,14 @@ import uuid
 import ray
 
 
-NUM_GPU_NODES = 1
-INPUT_PATH = "s3://anonymous@ray-example-data/imagenet/metadata_file.parquet"
-OUTPUT_PATH = "s3://anyscale-staging-data-cld-kvedzwag2qa8i5bjxuevf5i7/org_7c1Kalm9WcX2bNIjW53GUT/cld_kvedZWag2qA8i5BjxUevf5i7/artifact_storage/eoakes-resnet-data"
 BATCH_SIZE = 100
+NUM_GPU_NODES = 8
+INPUT_PATH = "s3://anonymous@ray-example-data/imagenet/metadata_file.parquet"
+OUTPUT_PATH = f"s3://ray-data-write-benchmark/{uuid.uuid4().hex}"
+OUTPUT_PATH = "s3://anyscale-staging-data-cld-kvedzwag2qa8i5bjxuevf5i7/org_7c1Kalm9WcX2bNIjW53GUT/cld_kvedZWag2qA8i5BjxUevf5i7/artifact_storage/eoakes-resnet-data"
 
 weights = ResNet18_Weights.DEFAULT
 transform = transforms.Compose([transforms.ToTensor(), weights.transforms()])
-
-ray.init()
-
-
-@ray.remote
-def warmup():
-    pass
-
-
-# NOTE: On a fresh Ray cluster, it can take a minute or longer to schedule the first
-#       task. To ensure benchmarks compare data processing speed and not cluster startup
-#       overhead, this code launches a several tasks as warmup.
-ray.get([warmup.remote() for _ in range(64)])
-
 
 def deserialize_image(row):
     image = Image.open(io.BytesIO(row["bytes"])).convert("RGB")
@@ -79,20 +66,21 @@ start_time = time.time()
 
 
 ds = (
-	ray.data.read_parquet(INPUT_PATH)
-	# NOTE: Limit to the 803,580 images Daft uses in their benchmark.
-	.limit(803_580)
-	.with_column("bytes", download("image_url"))
-	.map(fn=deserialize_image)
-	.map(fn=transform_image)
-	.map_batches(
-		fn=ResNetActor,
-		batch_size=BATCH_SIZE,
-		num_gpus=1.0,
-		concurrency=NUM_GPU_NODES,
-	)
-	.select_columns(["image_url", "label"])
+    ray.data.read_parquet(INPUT_PATH)
+    # .limit(800_000)
+    .limit(100_000)
+    .with_column("bytes", download("image_url"))
+    .map(fn=deserialize_image)
+    .map(fn=transform_image)
+    .map_batches(
+        fn=ResNetActor,
+        batch_size=BATCH_SIZE,
+        num_gpus=1.0,
+        concurrency=NUM_GPU_NODES,
+    )
+    .select_columns(["image_url", "label"])
 )
 ds.write_parquet(OUTPUT_PATH)
 
-print(f"Finished in {time.time()-start:.2f}s")
+
+print(f"Finished in: {time.time() - start_time:.2f}s")

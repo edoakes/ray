@@ -1,0 +1,104 @@
+Comparing Ray Data vs. a basic hand-written Ray Core implementation on a few workloads.
+
+Ray Core implementation details:
+- Fixed number of actors per "operator".
+- Streamings inputs between operators, keeping 2x (max_concurrency_per_actor * num_actors) tasks in flight for each operator.
+- Manual client implementation (using pyarrow & boto3 clients).
+- For GPU inference, just splitting the input URL list into batches.
+- No serialization optimizations (zero-copy etc.).
+
+"Optimized" Ray Core version:
+- Locality-aware routing: start an even number of actors on each node, prefer to pass data along operator edges on the same node.
+- Per-actor queues (instead of per-operator): keep a target number of in-flight tasks per *actor*, not per operator. Choose least loaded actor when scheduling next input.
+
+Ray version: 2.53.0 on Anyscale staging
+
+# Read -> Write (no map)
+
+Head node: m5.2xlarge, 8 vCPU, 32 GiB memory
+
+## Results (s3://doggos-dataset/train)
+To compare outputs: `aws s3 ls s3://uri --summarize`
+
+Input (s3://doggos-dataset/train):
+Total Objects: 2880
+   Total Size: 111368673
+
+# NOTE: read_images and write_images was much slower (~100s).
+Ray Data (read_binary_files):
+- Finished in 78.42s
+- Total Objects: 2881
+- Total Size: 111368673
+
+# NOTE: Ray Core version was faster even when using one reader and one writer actor.
+Ray Core:
+- Finished in 10.81s
+- Total Objects: 2880
+- Total Size: 111368673
+
+## Larger dataset (s3://anyscale-staging-data-cld-kvedzwag2qa8i5bjxuevf5i7/org_7c1Kalm9WcX2bNIjW53GUT/cld_kvedZWag2qA8i5BjxUevf5i7/artifact_storage/doggos-dataset-expanded/)
+
+Ray Data:
+- Ran for 13min, 30% complete
+
+Ray Core:
+- Finished in 270.14s
+- Total Objects: 69121
+- Total Size: 20568719328
+
+# Read -> Map (10ms) -> Write
+
+Head node: m5.2xlarge, 8 vCPU, 32 GiB memory
+
+Ray Data (simple_map_data.py)
+- Finished in 28.48s
+
+Ray Core (simple_map_core.py)
+- Finished in 11.66s
+
+# ResNet Inference
+
+https://github.com/ray-project/ray/blob/cdb870692f86d577c4639853de5b1050fa6efefc/release/nightly_tests/multimodal_inference_benchmarks/image_classification/ray_data_main.py
+
+Head node: m5.2xlarge, 8 vCPU, 32 GiB memory
+Worker node: g6.8xlarge, 32 vCPU, 1 NVIDIA L4 GPU, 128 GiB memory
+
+## 1 node, 100k inputs
+
+Ray Data (resnet_data.py, batch_size=100)
+- Finished in: 85.49s
+- Peak memory utilization: 40.3GiB (33.6%)
+- Peak GRAM utilization: 9.56%
+- GPU utilization average: 68%
+- S3 output summary:
+  - Total Objects: 517
+  - Total Size: 2503845
+
+Ray Core (resnet_core.py, batch_size=100, completely random scheduling)
+- Finished in: 64.79s
+- Peak memory utilization: 23.4 GiB (19.5%)
+- Peak GRAM utilization: 13.9%
+- GPU utilization average: 88%
+- S3 output summary:
+  - Total Objects: 1000
+  - Total Size: 2440457
+
+## 8 nodes, 800k inputs
+
+Ray Data (resnet_data.py, batch_size=100)
+- Finished in: 130.20s
+- Peak memory utilization: 44.7GiB (37.2%)
+- Peak GRAM utilization: 6.64%
+- GPU utilization average: ~60%
+
+Ray Core (resnet_core.py, batch_size=100, completely random scheduling)
+- Finished in: 124.21s
+- Peak memory utilization: 31.1 GiB (25.9%)
+- Peak GRAM utilization: 13.9%
+- GPU utilization average: ~65%
+
+Ray Core (resnet_core.py, batch_size=100, locality-aware scheduling & per-actor queues)
+- Finished in: 72.15s
+- Peak memory utilization: 27.5 GiB (25.9%)
+- Peak GRAM utilization: 22.9%
+- GPU utilization average: ~75%

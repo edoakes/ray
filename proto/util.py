@@ -1,4 +1,4 @@
-from typing import Iterator, Tuple
+from typing import Dict, Iterator, Tuple
 from urllib.parse import urlparse
 
 import boto3
