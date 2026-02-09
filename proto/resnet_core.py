@@ -174,6 +174,13 @@ for node_id in node_ids:
         actor_to_node[a] = node_id
 
 ref_to_node = {}  # ObjectRef -> node_id
+ref_to_actor = {}  # ObjectRef -> actor handle
+actor_pending = defaultdict(int)  # actor handle -> in-flight count
+
+MAX_PER_READ = 2 * READ_ACTOR_CONCURRENCY
+MAX_PER_PREPROCESS = 2 * PREPROCESS_ACTOR_CONCURRENCY
+MAX_PER_INFERENCE = 2 * INFERENCE_ACTOR_CONCURRENCY
+MAX_PER_WRITE = 2 * WRITE_ACTOR_CONCURRENCY
 
 inputs = [
     image_urls[i:i + BATCH_SIZE] for i in range(0, len(image_urls), BATCH_SIZE)
@@ -223,76 +230,88 @@ while True:
 
     for r in ray.wait(list(pending_reads), timeout=0, fetch_local=False)[0]:
         pending_reads.remove(r)
+        actor_pending[ref_to_actor.pop(r)] -= 1
         done_reads.add(r)
 
     for r in ray.wait(list(pending_preprocesses), timeout=0, fetch_local=False)[0]:
         pending_preprocesses.remove(r)
+        actor_pending[ref_to_actor.pop(r)] -= 1
         done_preprocesses.add(r)
 
     for r in ray.wait(list(pending_inferences), timeout=0, fetch_local=False)[0]:
         pending_inferences.remove(r)
+        actor_pending[ref_to_actor.pop(r)] -= 1
         done_inferences.add(r)
 
     for r in ray.wait(list(pending_writes), timeout=0, fetch_local=False)[0]:
         pending_writes.remove(r)
+        actor_pending[ref_to_actor.pop(r)] -= 1
         done_writes.add(r)
 
     # Submit reads.
-    target_reads = 2 * len(read_actors) * READ_ACTOR_CONCURRENCY
-    reads_to_submit = target_reads - (len(pending_reads) + len(done_reads))
-    for _ in range(reads_to_submit):
-        if not inputs:
+    while inputs:
+        actor = min(read_actors, key=lambda a: actor_pending[a])
+        if actor_pending[actor] >= MAX_PER_READ:
             break
-        read_actor = random.choice(read_actors)
-        ref = read_actor.read.remote(inputs.pop(0))
-        ref_to_node[ref] = actor_to_node[read_actor]
+        ref = actor.read.remote(inputs.pop(0))
+        ref_to_actor[ref] = actor
+        actor_pending[actor] += 1
+        ref_to_node[ref] = actor_to_node[actor]
         pending_reads.add(ref)
 
     # Submit preprocesses.
-    target_preprocesses = 2 * len(preprocess_actors) * PREPROCESS_ACTOR_CONCURRENCY
-    preprocesses_to_submit = target_preprocesses - (
-        len(pending_preprocesses) + len(done_preprocesses)
-    )
-    for _ in range(preprocesses_to_submit):
-        if not done_reads:
-            break
+    retry = []
+    while done_reads:
         in_ref = done_reads.pop()
-        node = ref_to_node.pop(in_ref)
-        local = preprocess_actors_by_node.get(node)
-        actor = random.choice(local if local else preprocess_actors)
+        node = ref_to_node.get(in_ref)
+        local = preprocess_actors_by_node.get(node) or preprocess_actors
+        actor = min(local, key=lambda a: actor_pending[a])
+        if actor_pending[actor] >= MAX_PER_PREPROCESS:
+            retry.append(in_ref)
+            continue
+        ref_to_node.pop(in_ref)
         ref = actor.preprocess.remote(in_ref)
+        ref_to_actor[ref] = actor
+        actor_pending[actor] += 1
         ref_to_node[ref] = actor_to_node[actor]
         pending_preprocesses.add(ref)
+    done_reads.update(retry)
 
     # Submit inferences.
-    target_inferences = 2 * len(inference_actors) * INFERENCE_ACTOR_CONCURRENCY
-    inferences_to_submit = target_inferences - (
-        len(pending_inferences) + len(done_inferences)
-    )
-    for _ in range(inferences_to_submit):
-        if not done_preprocesses:
-            break
+    retry = []
+    while done_preprocesses:
         in_ref = done_preprocesses.pop()
-        node = ref_to_node.pop(in_ref)
-        local = inference_actors_by_node.get(node)
-        actor = random.choice(local if local else inference_actors)
+        node = ref_to_node.get(in_ref)
+        local = inference_actors_by_node.get(node) or inference_actors
+        actor = min(local, key=lambda a: actor_pending[a])
+        if actor_pending[actor] >= MAX_PER_INFERENCE:
+            retry.append(in_ref)
+            continue
+        ref_to_node.pop(in_ref)
         ref = actor.predict.remote(in_ref)
+        ref_to_actor[ref] = actor
+        actor_pending[actor] += 1
         ref_to_node[ref] = actor_to_node[actor]
         pending_inferences.add(ref)
+    done_preprocesses.update(retry)
 
     # Submit writes.
-    target_writes = 2 * len(write_actors) * WRITE_ACTOR_CONCURRENCY
-    writes_to_submit = target_writes - len(pending_writes)
-    for _ in range(writes_to_submit):
-        if not done_inferences:
-            break
+    retry = []
+    while done_inferences:
         in_ref = done_inferences.pop()
-        node = ref_to_node.pop(in_ref)
-        local = write_actors_by_node.get(node)
-        actor = random.choice(local if local else write_actors)
+        node = ref_to_node.get(in_ref)
+        local = write_actors_by_node.get(node) or write_actors
+        actor = min(local, key=lambda a: actor_pending[a])
+        if actor_pending[actor] >= MAX_PER_WRITE:
+            retry.append(in_ref)
+            continue
+        ref_to_node.pop(in_ref)
         ref = actor.write.remote(in_ref)
+        ref_to_actor[ref] = actor
+        actor_pending[actor] += 1
         ref_to_node[ref] = actor_to_node[actor]
         pending_writes.add(ref)
+    done_inferences.update(retry)
 
 ray.get(list(done_writes))
 print(f"Finished in: {time.time() - start_time_s:.2f}s")
