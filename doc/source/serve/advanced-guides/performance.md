@@ -15,8 +15,6 @@ This section offers some tips and tricks to improve your Ray Serve application's
 
 ## Performance and benchmarks
 
-Ray Serve is built on top of Ray, so its scalability is bounded by Ray’s scalability. See Ray’s [scalability envelope](https://github.com/ray-project/ray/blob/master/release/benchmarks/README.md) to learn more about the maximum number of nodes and other limitations.
-
 ## Debugging performance issues in request path
 
 The performance issue you're most likely to encounter is high latency or low throughput for requests.
