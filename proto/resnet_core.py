@@ -1,27 +1,24 @@
 import io
 import os
 import random
+import threading
 import time
 import uuid
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
-import threading
-from typing import Dict
 
 import boto3
-from botocore.config import Config
 import numpy as np
 import pyarrow as pa
-import pyarrow.parquet as pq
 import pyarrow.fs as pafs
-import ray
-import requests
+import pyarrow.parquet as pq
 import torch
+from botocore.config import Config
 from PIL import Image
-from torchvision import transforms
 from torchvision.models import ResNet18_Weights, resnet18
-
 from util import parse_s3_uri
+
+import ray
 
 BATCH_SIZE = 100
 
@@ -39,11 +36,11 @@ OUTPUT_PATH = "s3://anyscale-staging-data-cld-kvedzwag2qa8i5bjxuevf5i7/org_7c1Ka
 INPUT_LIMIT = 800_000
 # INPUT_LIMIT = 100_000
 
+
 @ray.remote(max_concurrency=READ_ACTOR_CONCURRENCY)
 class ReadActor:
     def __init__(self):
         self._s3 = pafs.S3FileSystem(anonymous=True, region="us-west-2")
-        self._executor = ThreadPoolExecutor(max_workers=10)
 
     def _fetch_single(self, image_url: str):
         bucket, key = parse_s3_uri(image_url)
@@ -51,8 +48,7 @@ class ReadActor:
             return {"image_url": image_url, "bytes": f.read_buffer(), "error": None}
 
     def read(self, image_urls: list) -> list:
-        results = list(self._executor.map(self._fetch_single, image_urls))
-        return results
+        return list(map(self._fetch_single, image_urls))
 
 
 @ray.remote(max_concurrency=PREPROCESS_ACTOR_CONCURRENCY)
@@ -100,9 +96,7 @@ class InferenceActor:
         self._transfer_stream = torch.cuda.Stream()
         # One pinned buffer per concurrent slot to avoid races.
         self._pinned_bufs = [
-            torch.empty(
-                (BATCH_SIZE, 3, 224, 224), dtype=torch.float32, pin_memory=True
-            )
+            torch.empty((BATCH_SIZE, 3, 224, 224), dtype=torch.float32, pin_memory=True)
             for _ in range(INFERENCE_ACTOR_CONCURRENCY)
         ]
         self._buf_lock = threading.Lock()
@@ -150,12 +144,13 @@ class WriteActor:
         self._output_dir = output_dir
         self._s3 = boto3.client("s3", config=Config(max_pool_connections=64))
 
-
     def write(self, inputs: list) -> str:
-        table = pa.table({
-            "image_url": [inp["image_url"] for inp in inputs],
-            "label": [inp["label"] for inp in inputs],
-        })
+        table = pa.table(
+            {
+                "image_url": [inp["image_url"] for inp in inputs],
+                "label": [inp["label"] for inp in inputs],
+            }
+        )
         buf = io.BytesIO()
         pq.write_table(table, buf)
         output_key = os.path.join(self._output_dir, f"{uuid.uuid4().hex}.parquet")
@@ -178,12 +173,15 @@ input_table = pq.read_table(
 )
 image_urls = input_table.column("image_url").to_pylist()[:INPUT_LIMIT]
 
+# Shuffle image_urls to avoid throttling on specific prefixes.
+# Probably could further optimize by sharding the prefixes among readers.
+random.shuffle(image_urls)
+
 output_bucket, output_dir = parse_s3_uri(OUTPUT_PATH)
 
 # Get alive GPU node IDs and place actors evenly across them.
 node_ids = [
-    n["NodeID"] for n in ray.nodes()
-    if n["Alive"] and n["Resources"].get("GPU", 0) > 0
+    n["NodeID"] for n in ray.nodes() if n["Alive"] and n["Resources"].get("GPU", 0) > 0
 ]
 print(f"Found {len(node_ids)} GPU nodes")
 
@@ -235,9 +233,7 @@ MAX_READ_OUTPUTS = 2 * num_nodes * PREPROCESS_ACTORS_PER_NODE * MAX_PER_PREPROCE
 MAX_PREPROCESS_OUTPUTS = 2 * num_nodes * INFERENCE_ACTORS_PER_NODE * MAX_PER_INFERENCE
 MAX_INFERENCE_OUTPUTS = 2 * num_nodes * WRITE_ACTORS_PER_NODE * MAX_PER_WRITE
 
-inputs = [
-    image_urls[i:i + BATCH_SIZE] for i in range(0, len(image_urls), BATCH_SIZE)
-]
+inputs = [image_urls[i : i + BATCH_SIZE] for i in range(0, len(image_urls), BATCH_SIZE)]
 num_inputs = len(inputs)
 pending_reads = set()
 done_reads = set()
@@ -314,7 +310,11 @@ while True:
 
     # Submit preprocesses.
     retry = []
-    while done_reads and (len(pending_preprocesses) + len(done_preprocesses)) < MAX_PREPROCESS_OUTPUTS:
+    while (
+        done_reads
+        and (len(pending_preprocesses) + len(done_preprocesses))
+        < MAX_PREPROCESS_OUTPUTS
+    ):
         in_ref = done_reads.pop()
         node = ref_to_node.get(in_ref)
         local = preprocess_actors_by_node.get(node) or preprocess_actors
@@ -332,7 +332,10 @@ while True:
 
     # Submit inferences.
     retry = []
-    while done_preprocesses and (len(pending_inferences) + len(done_inferences)) < MAX_INFERENCE_OUTPUTS:
+    while (
+        done_preprocesses
+        and (len(pending_inferences) + len(done_inferences)) < MAX_INFERENCE_OUTPUTS
+    ):
         in_ref = done_preprocesses.pop()
         node = ref_to_node.get(in_ref)
         local = inference_actors_by_node.get(node) or inference_actors
