@@ -5,6 +5,7 @@ import time
 import uuid
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
+import threading
 from typing import Dict
 
 import boto3
@@ -25,20 +26,20 @@ from util import parse_s3_uri
 BATCH_SIZE = 100
 
 READ_ACTORS_PER_NODE = 12
-READ_ACTOR_CONCURRENCY = 10
-PREPROCESS_ACTORS_PER_NODE = 10
+READ_ACTOR_CONCURRENCY = 16
+PREPROCESS_ACTORS_PER_NODE = 8
 PREPROCESS_ACTOR_CONCURRENCY = 4
 INFERENCE_ACTORS_PER_NODE = 1
-INFERENCE_ACTOR_CONCURRENCY = 3
+INFERENCE_ACTOR_CONCURRENCY = 4
 WRITE_ACTORS_PER_NODE = 1
 WRITE_ACTOR_CONCURRENCY = 4
 
 INPUT_PATH = "s3://anonymous@ray-example-data/imagenet/metadata_file.parquet"
 OUTPUT_PATH = "s3://anyscale-staging-data-cld-kvedzwag2qa8i5bjxuevf5i7/org_7c1Kalm9WcX2bNIjW53GUT/cld_kvedZWag2qA8i5BjxUevf5i7/artifact_storage/eoakes-resnet-core"
-# INPUT_LIMIT = 800_000
-INPUT_LIMIT = 100_000
+INPUT_LIMIT = 800_000
+# INPUT_LIMIT = 100_000
 
-@ray.remote(max_concurrency=20)  # High concurrency to handle I/O wait times
+@ray.remote(max_concurrency=READ_ACTOR_CONCURRENCY)
 class ReadActor:
     def __init__(self):
         self._s3 = pafs.S3FileSystem(anonymous=True, region="us-west-2")
@@ -57,19 +58,36 @@ class ReadActor:
 @ray.remote(max_concurrency=PREPROCESS_ACTOR_CONCURRENCY)
 class PreprocessActor:
     def __init__(self):
-        weights = ResNet18_Weights.DEFAULT
-        self._transform = transforms.Compose(
-            [transforms.ToTensor(), weights.transforms()]
-        )
+        self._resize_size = 232
+        self._crop_size = 224
+        # ImageNet normalization constants, shaped for CHW broadcast.
+        self._mean = np.array([0.485, 0.456, 0.406], dtype=np.float32).reshape(3, 1, 1)
+        self._std = np.array([0.229, 0.224, 0.225], dtype=np.float32).reshape(3, 1, 1)
+        self._executor = ThreadPoolExecutor(max_workers=4)
 
+    def _preprocess_one(self, inp: dict) -> dict:
+        # Decode JPEG.
+        image = Image.open(pa.BufferReader(inp["bytes"])).convert("RGB")
+        # Resize short edge to 232 (PIL C code, releases GIL).
+        w, h = image.size
+        if h < w:
+            new_h = self._resize_size
+            new_w = int(w * self._resize_size / h)
+        else:
+            new_w = self._resize_size
+            new_h = int(h * self._resize_size / w)
+        image = image.resize((new_w, new_h), Image.BILINEAR)
+        # Center crop to 224x224.
+        left = (new_w - self._crop_size) // 2
+        top = (new_h - self._crop_size) // 2
+        image = image.crop((left, top, left + self._crop_size, top + self._crop_size))
+        # HWC uint8 → CHW float32, normalize. All numpy, no torch overhead.
+        arr = np.asarray(image, dtype=np.float32).transpose(2, 0, 1) * (1.0 / 255.0)
+        arr = (arr - self._mean) * (1.0 / self._std)
+        return {"image_url": inp["image_url"], "tensor": arr}
 
     def preprocess(self, inputs: list) -> list:
-        results = []
-        for inp in inputs:
-            image = Image.open(pa.BufferReader(inp["bytes"])).convert("RGB")
-            tensor = self._transform(image).numpy()
-            results.append({"image_url": inp["image_url"], "tensor": tensor})
-        return results
+        return list(self._executor.map(self._preprocess_one, inputs))
 
 
 @ray.remote(num_gpus=1, max_concurrency=INFERENCE_ACTOR_CONCURRENCY)
@@ -79,18 +97,46 @@ class InferenceActor:
         self._device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self._model = resnet18(weights=self._weights).to(self._device)
         self._model.eval()
+        self._transfer_stream = torch.cuda.Stream()
+        # One pinned buffer per concurrent slot to avoid races.
+        self._pinned_bufs = [
+            torch.empty(
+                (BATCH_SIZE, 3, 224, 224), dtype=torch.float32, pin_memory=True
+            )
+            for _ in range(INFERENCE_ACTOR_CONCURRENCY)
+        ]
+        self._buf_lock = threading.Lock()
+        self._available_bufs = list(range(INFERENCE_ACTOR_CONCURRENCY))
 
+    def _acquire_buf(self):
+        with self._buf_lock:
+            return self._available_bufs.pop()
+
+    def _release_buf(self, idx):
+        with self._buf_lock:
+            self._available_bufs.append(idx)
 
     def predict(self, inputs: list) -> list:
-        batch_tensor = torch.from_numpy(
-            np.stack([inp["tensor"] for inp in inputs])
-        ).to(self._device)
+        stacked = np.stack([inp["tensor"] for inp in inputs])
+        n = stacked.shape[0]
+        buf_idx = self._acquire_buf()
+        pinned = self._pinned_bufs[buf_idx][:n]
+        pinned.copy_(torch.from_numpy(stacked))
+        with torch.cuda.stream(self._transfer_stream):
+            batch_tensor = pinned.to(self._device, non_blocking=True)
+        # Record event so we know when the transfer (and thus pinned buf read) is done.
+        transfer_done = self._transfer_stream.record_event()
+
         with torch.inference_mode():
+            # Make the default stream wait for the transfer to finish on the GPU side.
+            torch.cuda.current_stream().wait_event(transfer_done)
             predictions = self._model(batch_tensor)
             predicted_classes = predictions.argmax(dim=1).detach().cpu().tolist()
             predicted_labels = [
                 self._weights.meta["categories"][c] for c in predicted_classes
             ]
+        # Safe to release pinned buffer now — transfer is long done.
+        self._release_buf(buf_idx)
         return [
             {"image_url": inp["image_url"], "label": label}
             for inp, label in zip(inputs, predicted_labels)
