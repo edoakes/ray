@@ -229,6 +229,12 @@ MAX_PER_PREPROCESS = 2 * PREPROCESS_ACTOR_CONCURRENCY
 MAX_PER_INFERENCE = 2 * INFERENCE_ACTOR_CONCURRENCY
 MAX_PER_WRITE = 2 * WRITE_ACTOR_CONCURRENCY
 
+# Backpressure: limit each stage's (pending + done) to 2x downstream capacity.
+num_nodes = len(node_ids)
+MAX_READ_OUTPUTS = 2 * num_nodes * PREPROCESS_ACTORS_PER_NODE * MAX_PER_PREPROCESS
+MAX_PREPROCESS_OUTPUTS = 2 * num_nodes * INFERENCE_ACTORS_PER_NODE * MAX_PER_INFERENCE
+MAX_INFERENCE_OUTPUTS = 2 * num_nodes * WRITE_ACTORS_PER_NODE * MAX_PER_WRITE
+
 inputs = [
     image_urls[i:i + BATCH_SIZE] for i in range(0, len(image_urls), BATCH_SIZE)
 ]
@@ -296,7 +302,7 @@ while True:
         done_writes.add(r)
 
     # Submit reads.
-    while inputs:
+    while inputs and (len(pending_reads) + len(done_reads)) < MAX_READ_OUTPUTS:
         actor = min(read_actors, key=lambda a: actor_pending[a])
         if actor_pending[actor] >= MAX_PER_READ:
             break
@@ -308,7 +314,7 @@ while True:
 
     # Submit preprocesses.
     retry = []
-    while done_reads:
+    while done_reads and (len(pending_preprocesses) + len(done_preprocesses)) < MAX_PREPROCESS_OUTPUTS:
         in_ref = done_reads.pop()
         node = ref_to_node.get(in_ref)
         local = preprocess_actors_by_node.get(node) or preprocess_actors
@@ -326,7 +332,7 @@ while True:
 
     # Submit inferences.
     retry = []
-    while done_preprocesses:
+    while done_preprocesses and (len(pending_inferences) + len(done_inferences)) < MAX_INFERENCE_OUTPUTS:
         in_ref = done_preprocesses.pop()
         node = ref_to_node.get(in_ref)
         local = inference_actors_by_node.get(node) or inference_actors
