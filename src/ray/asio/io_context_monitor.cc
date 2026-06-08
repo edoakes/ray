@@ -24,28 +24,33 @@ namespace ray {
 // IOContextMonitor
 // ---------------------------------------------------------------------------
 
-IOContextMonitor::IOContextMonitor(
-    std::string component_name,
-    std::vector<std::pair<std::string, instrumented_io_context *>> io_contexts,
-    observability::MetricInterface &latency_gauge,
-    observability::MetricInterface &health_gauge,
-    absl::Duration healthy_deadline,
-    std::shared_ptr<ClockInterface> clock)
+IOContextMonitor::IOContextMonitor(std::string component_name,
+                                   std::vector<MonitoredIOContext> io_contexts,
+                                   observability::MetricInterface &latency_gauge,
+                                   observability::MetricInterface &health_gauge,
+                                   absl::Duration healthy_deadline,
+                                   std::shared_ptr<ClockInterface> clock)
     : component_name_(std::move(component_name)),
       healthy_deadline_(healthy_deadline),
       clock_(std::move(clock)),
       latency_gauge_(latency_gauge),
       health_gauge_(health_gauge) {
-  for (auto &[name, io_context] : io_contexts) {
+  for (auto &io_context : io_contexts) {
     probe_states_.push_back(
-        std::make_shared<ProbeState>(std::move(name), *io_context, clock_));
+        std::make_shared<ProbeState>(std::move(io_context.name),
+                                     *io_context.io_context,
+                                     io_context.include_in_health_check,
+                                     clock_));
   }
 }
 
 bool IOContextMonitor::Tick() {
   bool all_healthy = true;
   for (auto &probe : probe_states_) {
-    if (!ProcessProbe(probe)) {
+    // Probe and record metrics for every io_context, but only let those flagged
+    // for the health check influence the aggregate verdict.
+    bool healthy = ProcessProbe(probe);
+    if (probe->include_in_health_check && !healthy) {
       all_healthy = false;
     }
   }

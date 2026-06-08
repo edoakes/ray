@@ -23,10 +23,9 @@ namespace {
 
 class IOContextMonitorTest : public ::testing::Test {
  protected:
-  IOContextMonitor MakeMonitor(
-      std::string name,
-      std::vector<std::pair<std::string, instrumented_io_context *>> io_contexts,
-      absl::Duration deadline = absl::Seconds(5)) {
+  IOContextMonitor MakeMonitor(std::string name,
+                               std::vector<MonitoredIOContext> io_contexts,
+                               absl::Duration deadline = absl::Seconds(5)) {
     return IOContextMonitor(std::move(name),
                             std::move(io_contexts),
                             latency_gauge_,
@@ -108,6 +107,29 @@ TEST_F(IOContextMonitorTest, LagNotRecordedWhileOutstanding) {
   ctx.poll();
   monitor.Tick();
   EXPECT_GE(GetLatency("ctx"), 0);
+}
+
+TEST_F(IOContextMonitorTest, ExcludedContextDoesNotAffectHealth) {
+  instrumented_io_context healthy_ctx;
+  instrumented_io_context stuck_ctx;
+
+  // The stuck context is excluded from the health check, so even when it blows
+  // past the deadline the aggregate verdict stays healthy. Its metrics are
+  // still recorded.
+  auto monitor =
+      MakeMonitor("test",
+                  {{"healthy", &healthy_ctx, /*include_in_health_check=*/true},
+                   {"excluded", &stuck_ctx, /*include_in_health_check=*/false}},
+                  absl::Milliseconds(100));
+
+  monitor.Tick();
+  healthy_ctx.poll();
+  clock_->AdvanceTime(absl::Milliseconds(200));
+
+  EXPECT_TRUE(monitor.Tick());
+  EXPECT_EQ(GetHealth("healthy"), 1);
+  // The excluded context is still probed and reported as unhealthy.
+  EXPECT_EQ(GetHealth("excluded"), 0);
 }
 
 TEST_F(IOContextMonitorTest, MultipleIOContexts) {
@@ -193,8 +215,7 @@ TEST(IOContextMonitorThreadTest, CallbackAndShutdown) {
 
   auto monitor = std::make_unique<IOContextMonitor>(
       "test",
-      std::vector<std::pair<std::string, instrumented_io_context *>>{
-          {"test_ctx", &ctx.GetIoService()}},
+      std::vector<MonitoredIOContext>{{"test_ctx", &ctx.GetIoService()}},
       latency_gauge,
       health_gauge,
       absl::Seconds(5));

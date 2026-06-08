@@ -97,6 +97,24 @@ ray_cc_test(
 )
 
 ray_cc_test(
+    name = "health_check_grpc_service_test",
+    size = "small",
+    srcs = [
+        "health_check_grpc_service_test.cc",
+    ],
+    tags = [
+        "no_windows",
+        "team:core",
+    ],
+    visibility = ["//visibility:private"],
+    deps = [
+        "//src/ray/gcs:grpc_services",
+        "@com_github_grpc_grpc//src/proto/grpc/health/v1:health_proto",
+        "@com_google_googletest//:gtest",
+    ],
+)
+
+ray_cc_test(
     name = "gcs_health_check_manager_test",
     size = "medium",
     srcs = [

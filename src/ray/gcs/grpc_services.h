@@ -22,8 +22,10 @@
 
 #pragma once
 
+#include <functional>
 #include <memory>
 #include <optional>
+#include <utility>
 #include <vector>
 
 #include "ray/asio/instrumented_io_context.h"
@@ -366,18 +368,29 @@ class RayEventExportGrpcService : public GrpcService {
 /// threads), this service's handler runs on the io_context event loop. If the event loop
 /// is stuck, the health check will not respond and the client will time out.
 ///
+/// In addition, the reported serving status reflects an external health source
+/// (see `health_check_fn`): if it returns false, the service responds with
+/// NOT_SERVING. This is used to surface the health of the GCS's other event loops
+/// as determined by the IOContextMonitor.
+///
 /// NOTE: we currently ignore the `service` field, which is part of the default
 /// health check protocol. In the future, we may want to implement this as per-service
 /// health checks (which could check the relevant boost::asio event loop).
 class HealthCheckGrpcService : public GrpcService {
  public:
-  explicit HealthCheckGrpcService(instrumented_io_context &io_service)
-      : GrpcService(io_service) {}
+  /// @param io_service The event loop the handler runs on.
+  /// @param health_check_fn Returns true if the GCS should report itself as
+  ///   serving. Invoked on `io_service`.
+  HealthCheckGrpcService(instrumented_io_context &io_service,
+                         std::function<bool()> health_check_fn)
+      : GrpcService(io_service), health_check_fn_(std::move(health_check_fn)) {}
 
   void HandleCheck(grpc::health::v1::HealthCheckRequest request,
                    grpc::health::v1::HealthCheckResponse *reply,
                    SendReplyCallback send_reply_callback) {
-    reply->set_status(grpc::health::v1::HealthCheckResponse::SERVING);
+    const bool serving = !health_check_fn_ || health_check_fn_();
+    reply->set_status(serving ? grpc::health::v1::HealthCheckResponse::SERVING
+                              : grpc::health::v1::HealthCheckResponse::NOT_SERVING);
     send_reply_callback(Status::OK(), nullptr, nullptr);
   }
 
@@ -392,6 +405,7 @@ class HealthCheckGrpcService : public GrpcService {
 
  private:
   grpc::health::v1::Health::AsyncService service_;
+  std::function<bool()> health_check_fn_;
 };
 
 }  // namespace rpc

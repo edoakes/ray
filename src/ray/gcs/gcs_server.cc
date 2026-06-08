@@ -19,6 +19,7 @@
 #include <utility>
 #include <vector>
 
+#include "absl/time/time.h"
 #include "ray/asio/asio_util.h"
 #include "ray/asio/instrumented_io_context.h"
 #include "ray/common/ray_config.h"
@@ -312,11 +313,18 @@ void GcsServer::DoStart(const GcsInitData &gcs_init_data) {
   InitGcsAutoscalerStateManager(gcs_init_data);
   InitUsageStatsClient();
 
+  // Start monitoring the io_contexts before serving so the health check reflects
+  // their state.
+  InitIOContextMonitor();
+
   // Register a custom health check service that runs on the io_context instead of the
   // default gRPC health check (which responds directly from gRPC threads). This way,
-  // if the GCS event loop is stuck, health checks will time out.
+  // if the GCS event loop is stuck, health checks will time out. The serving status
+  // also reflects the aggregate health of the control-plane io_contexts as determined
+  // by the IOContextMonitor.
   rpc_server_.RegisterService(std::make_unique<rpc::HealthCheckGrpcService>(
-      io_context_provider_.GetDefaultIOContext()));
+      io_context_provider_.GetDefaultIOContext(),
+      [this]() { return io_contexts_healthy_.load(std::memory_order_relaxed); }));
 
   // Start RPC server when all tables have finished loading initial
   // data.
@@ -348,6 +356,11 @@ void GcsServer::DoStart(const GcsInitData &gcs_init_data) {
 void GcsServer::Stop() {
   if (!is_stopped_) {
     RAY_LOG(INFO) << "Stopping GCS server.";
+
+    // Stop the io_context monitor before tearing down the io_contexts it probes.
+    if (io_context_monitor_thread_) {
+      io_context_monitor_thread_->Stop();
+    }
 
     // Flush any remaining events before stopping.
     if (ray_event_recorder_) {
@@ -414,6 +427,37 @@ void GcsServer::InitGcsHealthCheckManager(const GcsInitData &gcs_init_data) {
       gcs_healthcheck_manager_->AddNode(item.first, raylet_client->GetChannel());
     }
   }
+}
+
+void GcsServer::InitIOContextMonitor() {
+  std::vector<MonitoredIOContext> monitored_io_contexts;
+  // The default (main) io_context always contributes to the health check.
+  monitored_io_contexts.push_back({"gcs_server_main_io_context",
+                                   &io_context_provider_.GetDefaultIOContext(),
+                                   /*include_in_health_check=*/true});
+  // The dedicated io_contexts are indexed identically to the policy metadata, so
+  // we can zip them together to pick up each context's health-check flag.
+  const auto &dedicated_io_contexts = io_context_provider_.GetAllDedicatedIOContexts();
+  for (size_t i = 0; i < dedicated_io_contexts.size(); ++i) {
+    monitored_io_contexts.push_back(
+        {dedicated_io_contexts[i]->GetName(),
+         &dedicated_io_contexts[i]->GetIoService(),
+         GcsServerIOContextPolicy::kAllDedicatedIOContexts[i].used_for_health_check});
+  }
+
+  auto monitor = std::make_unique<IOContextMonitor>(
+      /*component_name=*/"gcs",
+      std::move(monitored_io_contexts),
+      metrics_.io_context_monitor_latency_ms_gauge,
+      metrics_.io_context_monitor_health_gauge,
+      absl::Milliseconds(RayConfig::instance().io_context_monitor_healthy_deadline_ms()));
+  io_context_monitor_thread_ = std::make_unique<IOContextMonitorThread>(
+      std::move(monitor),
+      absl::Milliseconds(RayConfig::instance().io_context_monitor_probe_interval_ms()),
+      [this](bool healthy) {
+        io_contexts_healthy_.store(healthy, std::memory_order_relaxed);
+      });
+  io_context_monitor_thread_->Start();
 }
 
 void GcsServer::InitGcsResourceManager(const GcsInitData &gcs_init_data) {

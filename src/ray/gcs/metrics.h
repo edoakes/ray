@@ -39,6 +39,8 @@ struct GcsServerMetrics {
   ray::observability::MetricInterface &resource_usage_gauge;
   ray::observability::MetricInterface &scheduler_placement_time_ms_histogram;
   ray::observability::MetricInterface &health_check_rpc_latency_ms_histogram;
+  ray::observability::MetricInterface &io_context_monitor_latency_ms_gauge;
+  ray::observability::MetricInterface &io_context_monitor_health_gauge;
 };
 
 inline ray::stats::Gauge GetRunningJobGaugeMetric() {
@@ -173,6 +175,26 @@ inline ray::stats::Histogram GetHealthCheckRpcLatencyMsHistogramMetric() {
       /*unit=*/"",
       /*boundaries=*/{1, 10, 100, 1000, 10000},
       /*tag_keys=*/{},
+  };
+}
+
+inline ray::stats::Gauge GetIoContextMonitorLatencyMsGaugeMetric() {
+  return ray::stats::Gauge{
+      /*name=*/"io_context_monitor_latency_ms",
+      /*description=*/
+      "Latency of the most recent io_context monitor probe (post to execution), in ms.",
+      /*unit=*/"ms",
+      /*tag_keys=*/{"Name"},
+  };
+}
+
+inline ray::stats::Gauge GetIoContextMonitorHealthGaugeMetric() {
+  return ray::stats::Gauge{
+      /*name=*/"io_context_monitor_health",
+      /*description=*/
+      "Health of each monitored io_context (1 if healthy, 0 otherwise).",
+      /*unit=*/"",
+      /*tag_keys=*/{"Name"},
   };
 }
 

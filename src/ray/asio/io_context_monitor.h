@@ -28,6 +28,20 @@
 
 namespace ray {
 
+/// A single io_context to be monitored.
+struct MonitoredIOContext {
+  /// Human-readable name, used as the "Name" metric tag and in logs.
+  std::string name;
+  /// The io_context to probe. Must outlive the IOContextMonitor.
+  instrumented_io_context *io_context;
+  /// If true, this io_context's health contributes to the aggregate health
+  /// returned by Tick(). If false, the io_context is still probed and its
+  /// metrics are still recorded, but it does not affect the aggregate verdict.
+  /// Callers use this to exclude non-critical (e.g. observability) event loops
+  /// from the serving-health determination.
+  bool include_in_health_check = true;
+};
+
 /// The probe state machine. Tracks registered io_contexts, posts probes, and
 /// evaluates health based on the latency to execute the probes.
 ///
@@ -36,7 +50,7 @@ namespace ray {
 class IOContextMonitor {
  public:
   /// @param component_name Human-readable name for logging (e.g. "gcs", "raylet").
-  /// @param io_contexts Named io_contexts to monitor. Must outlive the monitor.
+  /// @param io_contexts io_contexts to monitor. Must outlive the monitor.
   /// @param latency_gauge Gauge metric for the most recent probe latency (ms),
   ///   tagged by "Name".
   /// @param health_gauge Gauge metric for the current health status (1 if
@@ -45,29 +59,31 @@ class IOContextMonitor {
   ///   io_context is considered unhealthy.
   /// @param clock Clock to use for time. Defaults to a real clock. Inject a
   ///   FakeClock in tests for deterministic behavior.
-  IOContextMonitor(
-      std::string component_name,
-      std::vector<std::pair<std::string, instrumented_io_context *>> io_contexts,
-      observability::MetricInterface &latency_gauge,
-      observability::MetricInterface &health_gauge,
-      absl::Duration healthy_deadline,
-      std::shared_ptr<ClockInterface> clock = std::make_shared<Clock>());
+  IOContextMonitor(std::string component_name,
+                   std::vector<MonitoredIOContext> io_contexts,
+                   observability::MetricInterface &latency_gauge,
+                   observability::MetricInterface &health_gauge,
+                   absl::Duration healthy_deadline,
+                   std::shared_ptr<ClockInterface> clock = std::make_shared<Clock>());
 
   /// Run one probe cycle: check previous probes, emit metrics/logs, post new probes.
-  /// Returns true iff all registered io_contexts are healthy.
+  /// Returns true iff all io_contexts with include_in_health_check set are healthy.
   bool Tick();
 
  private:
   struct ProbeState {
     ProbeState(std::string name_val,
                instrumented_io_context &io_context_val,
+               bool include_in_health_check_val,
                std::shared_ptr<ClockInterface> clock_val)
         : name(std::move(name_val)),
           io_context(io_context_val),
+          include_in_health_check(include_in_health_check_val),
           clock(std::move(clock_val)) {}
 
     const std::string name;
     instrumented_io_context &io_context;
+    const bool include_in_health_check;
     const std::shared_ptr<ClockInterface> clock;
 
     // Mutex protecting fields written by the probe callback (on the io_context
