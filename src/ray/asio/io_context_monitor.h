@@ -48,7 +48,6 @@ struct MonitoredIOContext {
 /// by calling Tick() directly with a FakeClock.
 class IOContextMonitor {
  public:
-  /// @param component_name Human-readable name for logging (e.g. "gcs", "raylet").
   /// @param io_contexts io_contexts to monitor. Must outlive the monitor.
   /// @param latency_gauge Gauge metric for the most recent probe latency (ms),
   ///   tagged by "Name".
@@ -58,8 +57,7 @@ class IOContextMonitor {
   ///   io_context is considered unhealthy.
   /// @param clock Clock to use for time. Defaults to a real clock. Inject a
   ///   FakeClock in tests for deterministic behavior.
-  IOContextMonitor(std::string component_name,
-                   std::vector<MonitoredIOContext> io_contexts,
+  IOContextMonitor(std::vector<MonitoredIOContext> io_contexts,
                    observability::MetricInterface &latency_gauge,
                    observability::MetricInterface &health_gauge,
                    absl::Duration healthy_deadline,
@@ -102,7 +100,6 @@ class IOContextMonitor {
   static void ExecuteProbeOnIOContext(const std::shared_ptr<ProbeState> &probe)
       ABSL_LOCKS_EXCLUDED(probe->mu);
 
-  const std::string component_name_;
   const absl::Duration healthy_deadline_;
   const std::shared_ptr<ClockInterface> clock_;
   observability::MetricInterface &latency_gauge_;

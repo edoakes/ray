@@ -81,11 +81,7 @@ class GcsServerTest : public ::testing::Test {
     gcs_server_ = std::make_unique<gcs::GcsServer>(config, fake_metrics_, io_service_);
     gcs_server_->Start();
 
-    thread_io_service_ = std::make_unique<std::thread>([this] {
-      boost::asio::executor_work_guard<boost::asio::io_context::executor_type> work(
-          io_service_.get_executor());
-      io_service_.run();
-    });
+    StartMainIOServiceThread();
 
     // Wait until server starts listening.
     while (gcs_server_->GetPort() == 0) {
@@ -129,6 +125,28 @@ class GcsServerTest : public ::testing::Test {
       return std::nullopt;
     }
     return response.status();
+  }
+
+  // Polls the health check until it reports `expected` or the timeout elapses,
+  // returning whether `expected` was observed.
+  bool WaitForHealthStatus(grpc::health::v1::HealthCheckResponse::ServingStatus expected,
+                           std::chrono::seconds timeout) {
+    auto deadline = std::chrono::steady_clock::now() + timeout;
+    do {
+      if (CheckHealth(std::chrono::milliseconds(1000)) == expected) {
+        return true;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    } while (std::chrono::steady_clock::now() < deadline);
+    return false;
+  }
+
+  void StartMainIOServiceThread() {
+    thread_io_service_ = std::make_unique<std::thread>([this] {
+      boost::asio::executor_work_guard<boost::asio::io_context::executor_type> work(
+          io_service_.get_executor());
+      io_service_.run();
+    });
   }
 
   bool AddJob(rpc::AddJobRequest request) {
@@ -555,49 +573,31 @@ TEST_F(GcsServerTest, TestWorkerInfo) {
 
 TEST_F(GcsServerTest, HealthCheckSucceeds) {
   // The IOContextMonitor drives the serving status; poll until it reports SERVING.
-  auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
-  while (std::chrono::steady_clock::now() < deadline) {
-    if (CheckHealth(std::chrono::milliseconds(1000)) ==
-        grpc::health::v1::HealthCheckResponse::SERVING) {
-      break;
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
-  }
-  EXPECT_EQ(CheckHealth(std::chrono::milliseconds(1000)),
-            grpc::health::v1::HealthCheckResponse::SERVING);
+  EXPECT_TRUE(WaitForHealthStatus(grpc::health::v1::HealthCheckResponse::SERVING,
+                                  std::chrono::seconds(10)));
 }
 
-TEST_F(GcsServerTest, HealthCheckReportsNotServingWhenMainIOContextBlocked) {
-  // Wait until the GCS reports SERVING.
-  auto serving_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
-  while (std::chrono::steady_clock::now() < serving_deadline) {
-    if (CheckHealth(std::chrono::milliseconds(1000)) ==
-        grpc::health::v1::HealthCheckResponse::SERVING) {
-      break;
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
-  }
-  ASSERT_EQ(CheckHealth(std::chrono::milliseconds(1000)),
-            grpc::health::v1::HealthCheckResponse::SERVING);
+TEST_F(GcsServerTest, HealthCheckReflectsMainIOContextHealth) {
+  // Healthy while the main io_context is running.
+  ASSERT_TRUE(WaitForHealthStatus(grpc::health::v1::HealthCheckResponse::SERVING,
+                                  std::chrono::seconds(10)));
 
-  // Stop the main io_context. The IOContextMonitor's probe to it will stop
+  // Stop the main io_context. The IOContextMonitor's probe to it stops
   // completing, and once it exceeds the healthy deadline the monitor flips the
   // gRPC serving status to NOT_SERVING. Note the health check itself still
   // responds (it runs on gRPC's own threads), it just reports unhealthy.
   io_service_.stop();
   thread_io_service_->join();
   thread_io_service_.reset();
+  EXPECT_TRUE(WaitForHealthStatus(grpc::health::v1::HealthCheckResponse::NOT_SERVING,
+                                  std::chrono::seconds(30)));
 
-  auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
-  std::optional<grpc::health::v1::HealthCheckResponse::ServingStatus> status;
-  while (std::chrono::steady_clock::now() < deadline) {
-    status = CheckHealth(std::chrono::milliseconds(1000));
-    if (status == grpc::health::v1::HealthCheckResponse::NOT_SERVING) {
-      break;
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds(200));
-  }
-  EXPECT_EQ(status, grpc::health::v1::HealthCheckResponse::NOT_SERVING);
+  // Restart the main io_context. Probes complete again and the monitor flips the
+  // serving status back to SERVING.
+  io_service_.restart();
+  StartMainIOServiceThread();
+  EXPECT_TRUE(WaitForHealthStatus(grpc::health::v1::HealthCheckResponse::SERVING,
+                                  std::chrono::seconds(30)));
 }
 
 }  // namespace ray

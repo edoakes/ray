@@ -434,7 +434,6 @@ void GcsServer::InitIOContextMonitor() {
   }
 
   auto monitor = std::make_unique<IOContextMonitor>(
-      /*component_name=*/"gcs",
       std::move(monitored_io_contexts),
       metrics_.io_context_monitor_latency_ms_gauge,
       metrics_.io_context_monitor_health_gauge,

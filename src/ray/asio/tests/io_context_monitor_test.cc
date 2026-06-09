@@ -23,11 +23,9 @@ namespace {
 
 class IOContextMonitorTest : public ::testing::Test {
  protected:
-  IOContextMonitor MakeMonitor(std::string name,
-                               std::vector<MonitoredIOContext> io_contexts,
+  IOContextMonitor MakeMonitor(std::vector<MonitoredIOContext> io_contexts,
                                absl::Duration deadline = absl::Seconds(5)) {
-    return IOContextMonitor(std::move(name),
-                            std::move(io_contexts),
+    return IOContextMonitor(std::move(io_contexts),
                             latency_gauge_,
                             health_gauge_,
                             deadline,
@@ -61,7 +59,7 @@ class IOContextMonitorTest : public ::testing::Test {
 
 TEST_F(IOContextMonitorTest, ProbeSucceeds) {
   instrumented_io_context ctx;
-  auto monitor = MakeMonitor("test", {{"ctx", &ctx}});
+  auto monitor = MakeMonitor({{"ctx", &ctx}});
 
   monitor.Tick();
   ctx.poll();
@@ -71,7 +69,7 @@ TEST_F(IOContextMonitorTest, ProbeSucceeds) {
 
 TEST_F(IOContextMonitorTest, DetectsStuckIOContext) {
   instrumented_io_context stuck_ctx;
-  auto monitor = MakeMonitor("test", {{"stuck", &stuck_ctx}}, absl::Milliseconds(100));
+  auto monitor = MakeMonitor({{"stuck", &stuck_ctx}}, absl::Milliseconds(100));
 
   EXPECT_TRUE(monitor.Tick());
   EXPECT_EQ(GetHealthGaugeValue("stuck"), 1);
@@ -87,7 +85,7 @@ TEST_F(IOContextMonitorTest, DetectsStuckIOContext) {
 
 TEST_F(IOContextMonitorTest, HealthyWithinDeadline) {
   instrumented_io_context ctx;
-  auto monitor = MakeMonitor("test", {{"ctx", &ctx}}, absl::Milliseconds(100));
+  auto monitor = MakeMonitor({{"ctx", &ctx}}, absl::Milliseconds(100));
 
   monitor.Tick();
   clock_->AdvanceTime(absl::Milliseconds(50));
@@ -96,7 +94,7 @@ TEST_F(IOContextMonitorTest, HealthyWithinDeadline) {
 
 TEST_F(IOContextMonitorTest, LagNotRecordedWhileOutstanding) {
   instrumented_io_context ctx;
-  auto monitor = MakeMonitor("test", {{"ctx", &ctx}});
+  auto monitor = MakeMonitor({{"ctx", &ctx}});
 
   monitor.Tick();
   EXPECT_EQ(GetLatencyGaugeValue("ctx"), -1);
@@ -116,8 +114,7 @@ TEST_F(IOContextMonitorTest, ExcludedContextDoesNotAffectHealth) {
   // The stuck context is excluded from the health check, so even if its probe
   // misses the deadline the aggregate health bool should remain `true`.
   auto monitor =
-      MakeMonitor("test",
-                  {{"healthy", &healthy_ctx, /*include_in_health_check=*/true},
+      MakeMonitor({{"healthy", &healthy_ctx, /*include_in_health_check=*/true},
                    {"excluded", &stuck_ctx, /*include_in_health_check=*/false}},
                   absl::Milliseconds(100));
 
@@ -135,8 +132,7 @@ TEST_F(IOContextMonitorTest, MultipleIOContexts) {
   instrumented_io_context healthy_ctx;
   instrumented_io_context stuck_ctx;
 
-  auto monitor = MakeMonitor("test",
-                             {{"healthy", &healthy_ctx}, {"stuck", &stuck_ctx}},
+  auto monitor = MakeMonitor({{"healthy", &healthy_ctx}, {"stuck", &stuck_ctx}},
                              absl::Milliseconds(100));
 
   monitor.Tick();
@@ -161,7 +157,7 @@ TEST_F(IOContextMonitorTest, MultipleIOContexts) {
 
 TEST_F(IOContextMonitorTest, CompletionPastDeadlineMarksUnhealthy) {
   instrumented_io_context ctx;
-  auto monitor = MakeMonitor("test", {{"ctx", &ctx}}, absl::Milliseconds(100));
+  auto monitor = MakeMonitor({{"ctx", &ctx}}, absl::Milliseconds(100));
 
   // Tick 1 posts the probe at t=0.
   EXPECT_TRUE(monitor.Tick());
@@ -179,7 +175,7 @@ TEST_F(IOContextMonitorTest, CompletionPastDeadlineMarksUnhealthy) {
 
 TEST_F(IOContextMonitorTest, LateCompletionDoesNotRestoreHealth) {
   instrumented_io_context ctx;
-  auto monitor = MakeMonitor("test", {{"ctx", &ctx}}, absl::Milliseconds(100));
+  auto monitor = MakeMonitor({{"ctx", &ctx}}, absl::Milliseconds(100));
 
   monitor.Tick();
   clock_->AdvanceTime(absl::Milliseconds(200));
@@ -195,7 +191,7 @@ TEST_F(IOContextMonitorTest, LateCompletionDoesNotRestoreHealth) {
 
 TEST_F(IOContextMonitorTest, DoesNotAccumulateProbesOnStuckContext) {
   instrumented_io_context stuck_ctx;
-  auto monitor = MakeMonitor("test", {{"stuck", &stuck_ctx}}, absl::Milliseconds(100));
+  auto monitor = MakeMonitor({{"stuck", &stuck_ctx}}, absl::Milliseconds(100));
 
   monitor.Tick();
   clock_->AdvanceTime(absl::Milliseconds(200));
@@ -213,7 +209,6 @@ TEST(IOContextMonitorThreadTest, InvokesHealthCallbackAndShutsDown) {
   observability::FakeGauge health_gauge;
 
   auto monitor = std::make_unique<IOContextMonitor>(
-      "test",
       std::vector<MonitoredIOContext>{{"test_ctx", &ctx.GetIoService()}},
       latency_gauge,
       health_gauge,

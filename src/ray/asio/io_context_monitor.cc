@@ -24,14 +24,12 @@ namespace ray {
 // IOContextMonitor
 // ---------------------------------------------------------------------------
 
-IOContextMonitor::IOContextMonitor(std::string component_name,
-                                   std::vector<MonitoredIOContext> io_contexts,
+IOContextMonitor::IOContextMonitor(std::vector<MonitoredIOContext> io_contexts,
                                    observability::MetricInterface &latency_gauge,
                                    observability::MetricInterface &health_gauge,
                                    absl::Duration healthy_deadline,
                                    std::shared_ptr<ClockInterface> clock)
-    : component_name_(std::move(component_name)),
-      healthy_deadline_(healthy_deadline),
+    : healthy_deadline_(healthy_deadline),
       clock_(std::move(clock)),
       latency_gauge_(latency_gauge),
       health_gauge_(health_gauge) {
@@ -74,8 +72,8 @@ bool IOContextMonitor::ProcessProbe(const std::shared_ptr<ProbeState> &probe) {
   // Check if the probe has exceeded the deadline, whether or not it has finished.
   if (has_active_probe && elapsed >= healthy_deadline_ &&
       !probe->deadline_warning_logged) {
-    RAY_LOG(WARNING) << "[" << component_name_ << "] io_context '" << probe->name
-                     << "' exceeded probe deadline ("
+    RAY_LOG(WARNING) << "io_context '" << probe->name
+                     << "' exceeded probe deadline and will be marked unhealthy ("
                      << absl::ToInt64Milliseconds(elapsed) << "ms)";
     probe->healthy = false;
     probe->deadline_warning_logged = true;
@@ -89,6 +87,11 @@ bool IOContextMonitor::ProcessProbe(const std::shared_ptr<ProbeState> &probe) {
 
       // Only mark healthy if the probe's actual lag was within the deadline.
       if (elapsed < healthy_deadline_) {
+        if (!probe->healthy) {
+          RAY_LOG(INFO) << "io_context '" << probe->name
+                        << "' recovered and will be marked healthy (probe latency "
+                        << absl::ToInt64Milliseconds(elapsed) << "ms)";
+        }
         probe->healthy = true;
       }
     }
