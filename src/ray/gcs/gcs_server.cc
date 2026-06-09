@@ -71,11 +71,7 @@ GcsServer::GcsServer(const ray::gcs::GcsServerConfig &config,
                   config.grpc_server_port,
                   IsLocalhost(config.node_ip_address),
                   config.grpc_server_thread_num,
-                  /*keepalive_time_ms=*/RayConfig::instance().grpc_keepalive_time_ms(),
-                  /*auth_token=*/nullptr,
-                  // The health check implementation is overridden to check the health
-                  // of our boost::asio event loop threads.
-                  /*enable_default_health_check_service=*/false),
+                  /*keepalive_time_ms=*/RayConfig::instance().grpc_keepalive_time_ms()),
       client_call_manager_(main_service,
                            /*record_stats=*/true,
                            config.node_ip_address,
@@ -313,25 +309,17 @@ void GcsServer::DoStart(const GcsInitData &gcs_init_data) {
   InitGcsAutoscalerStateManager(gcs_init_data);
   InitUsageStatsClient();
 
-  // Start monitoring the io_contexts before serving so the health check reflects
-  // their state.
-  InitIOContextMonitor();
-
-  // Register a custom health check service that runs on the io_context instead of the
-  // default gRPC health check (which responds directly from gRPC threads). This way,
-  // if the GCS event loop is stuck, health checks will time out. The serving status
-  // also reflects the aggregate health of the control-plane io_contexts as determined
-  // by the IOContextMonitor.
-  rpc_server_.RegisterService(std::make_unique<rpc::HealthCheckGrpcService>(
-      io_context_provider_.GetDefaultIOContext(),
-      [this]() { return io_contexts_healthy_.load(std::memory_order_relaxed); }));
-
   // Start RPC server when all tables have finished loading initial
   // data.
   rpc_server_.Run();
   if (port_ready_callback_) {
     port_ready_callback_(rpc_server_.GetPort());
   }
+
+  // Start monitoring the io_contexts. The monitor drives the serving status of
+  // the gRPC health check service, so it must be started after the RPC server is
+  // running (GetHealthCheckService() is only valid once the server is built).
+  InitIOContextMonitor();
 
   periodical_runner_->RunFnPeriodically(
       [this] { RecordMetrics(); },
@@ -455,7 +443,12 @@ void GcsServer::InitIOContextMonitor() {
       std::move(monitor),
       absl::Milliseconds(RayConfig::instance().io_context_monitor_probe_interval_ms()),
       [this](bool healthy) {
-        io_contexts_healthy_.store(healthy, std::memory_order_relaxed);
+        // Drive the gRPC default health check service's serving status. Called
+        // from the monitor thread; SetServingStatus is thread-safe. The empty
+        // service name is the conventional overall-server health that clients
+        // (e.g. the GCS client) query.
+        rpc_server_.GetServer().GetHealthCheckService()->SetServingStatus(
+            /*service_name=*/"", healthy);
       });
   io_context_monitor_thread_->Start();
 }

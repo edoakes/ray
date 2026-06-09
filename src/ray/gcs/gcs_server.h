@@ -307,13 +307,10 @@ class GcsServer {
   std::function<void(int)> port_ready_callback_;
   /// Client to call a metrics agent gRPC server.
   std::unique_ptr<rpc::MetricsAgentClient> metrics_agent_client_;
-  /// Aggregate health of the control-plane io_contexts, updated by
-  /// io_context_monitor_thread_ and read by the gRPC health check handler.
-  /// Defaults to healthy so that health checks pass before the first probe.
-  std::atomic<bool> io_contexts_healthy_ = true;
-  /// Monitors the GCS io_contexts on a dedicated thread and drives
-  /// io_contexts_healthy_. Declared last so it is stopped/destroyed before the
-  /// io_contexts (owned by io_context_provider_) and metrics it references.
+  /// Monitors the GCS io_contexts on a dedicated thread; its LastHealthStatus()
+  /// drives the gRPC health check. Declared last so it is stopped/destroyed
+  /// before the io_contexts (owned by io_context_provider_) and metrics it
+  /// references.
   std::unique_ptr<IOContextMonitorThread> io_context_monitor_thread_;
 };
 

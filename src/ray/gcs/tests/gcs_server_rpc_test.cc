@@ -14,7 +14,9 @@
 
 #include <grpcpp/grpcpp.h>
 
+#include <chrono>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -114,16 +116,19 @@ class GcsServerTest : public ::testing::Test {
     rpc::ResetServerCallExecutor();
   }
 
-  grpc::Status CheckHealth(std::chrono::milliseconds timeout) {
+  // Issues a health Check RPC and returns the reported serving status, or
+  // std::nullopt if the RPC itself failed (e.g. timed out).
+  std::optional<grpc::health::v1::HealthCheckResponse::ServingStatus> CheckHealth(
+      std::chrono::milliseconds timeout) {
     grpc::health::v1::HealthCheckRequest request;
     grpc::health::v1::HealthCheckResponse response;
     grpc::ClientContext context;
     context.set_deadline(std::chrono::system_clock::now() + timeout);
     auto status = health_check_stub_->Check(&context, request, &response);
-    if (status.ok()) {
-      EXPECT_EQ(response.status(), grpc::health::v1::HealthCheckResponse::SERVING);
+    if (!status.ok()) {
+      return std::nullopt;
     }
-    return status;
+    return response.status();
   }
 
   bool AddJob(rpc::AddJobRequest request) {
@@ -549,25 +554,50 @@ TEST_F(GcsServerTest, TestWorkerInfo) {
 // TODO(sang): Add tests after adding asyncAdd
 
 TEST_F(GcsServerTest, HealthCheckSucceeds) {
-  auto status = CheckHealth(std::chrono::milliseconds(5000));
-  ASSERT_TRUE(status.ok()) << "Health check failed: " << status.error_message();
+  // The IOContextMonitor drives the serving status; poll until it reports SERVING.
+  auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+  while (std::chrono::steady_clock::now() < deadline) {
+    if (CheckHealth(std::chrono::milliseconds(1000)) ==
+        grpc::health::v1::HealthCheckResponse::SERVING) {
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  }
+  EXPECT_EQ(CheckHealth(std::chrono::milliseconds(1000)),
+            grpc::health::v1::HealthCheckResponse::SERVING);
 }
 
-TEST_F(GcsServerTest, HealthCheckTimesOutWhenMainIOContextBlocked) {
-  // Health check should succeed while io_context is running.
-  auto status = CheckHealth(std::chrono::milliseconds(5000));
-  ASSERT_TRUE(status.ok()) << "Health check failed: " << status.error_message();
+TEST_F(GcsServerTest, HealthCheckReportsNotServingWhenMainIOContextBlocked) {
+  // Wait until the GCS reports SERVING.
+  auto serving_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+  while (std::chrono::steady_clock::now() < serving_deadline) {
+    if (CheckHealth(std::chrono::milliseconds(1000)) ==
+        grpc::health::v1::HealthCheckResponse::SERVING) {
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  }
+  ASSERT_EQ(CheckHealth(std::chrono::milliseconds(1000)),
+            grpc::health::v1::HealthCheckResponse::SERVING);
 
-  // Stop the main io_context so the custom health check handler cannot be dispatched.
+  // Stop the main io_context. The IOContextMonitor's probe to it will stop
+  // completing, and once it exceeds the healthy deadline the monitor flips the
+  // gRPC serving status to NOT_SERVING. Note the health check itself still
+  // responds (it runs on gRPC's own threads), it just reports unhealthy.
   io_service_.stop();
   thread_io_service_->join();
   thread_io_service_.reset();
 
-  // The health check should time out because the handler is posted to the
-  // main io_context which is no longer processing events.
-  status = CheckHealth(std::chrono::milliseconds(100));
-  ASSERT_FALSE(status.ok());
-  EXPECT_EQ(status.error_code(), grpc::StatusCode::DEADLINE_EXCEEDED);
+  auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+  std::optional<grpc::health::v1::HealthCheckResponse::ServingStatus> status;
+  while (std::chrono::steady_clock::now() < deadline) {
+    status = CheckHealth(std::chrono::milliseconds(1000));
+    if (status == grpc::health::v1::HealthCheckResponse::NOT_SERVING) {
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  }
+  EXPECT_EQ(status, grpc::health::v1::HealthCheckResponse::NOT_SERVING);
 }
 
 }  // namespace ray

@@ -36,6 +36,8 @@ IOContextMonitor::IOContextMonitor(std::string component_name,
       latency_gauge_(latency_gauge),
       health_gauge_(health_gauge) {
   for (auto &io_context : io_contexts) {
+    RAY_CHECK(io_context.io_context != nullptr)
+        << "MonitoredIOContext '" << io_context.name << "' has a null io_context pointer.";
     probe_states_.push_back(
         std::make_shared<ProbeState>(std::move(io_context.name),
                                      *io_context.io_context,
@@ -47,8 +49,8 @@ IOContextMonitor::IOContextMonitor(std::string component_name,
 bool IOContextMonitor::Tick() {
   bool all_healthy = true;
   for (auto &probe : probe_states_) {
-    // Probe and record metrics for every io_context, but only let those flagged
-    // for the health check influence the aggregate verdict.
+    // Probe and record metrics for every io_context, but only consider those with
+    // `include_in_health_check=true` for the aggregate health.
     bool healthy = ProcessProbe(probe);
     if (probe->include_in_health_check && !healthy) {
       all_healthy = false;
@@ -150,8 +152,7 @@ void IOContextMonitorThread::Run() {
   SetThreadName("io_context_monitor");
 
   while (true) {
-    bool healthy = monitor_->Tick();
-    health_callback_(healthy);
+    health_callback_(monitor_->Tick());
 
     absl::MutexLock lock(&mutex_);
     mutex_.AwaitWithTimeout(absl::Condition(

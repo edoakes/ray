@@ -117,7 +117,7 @@ class IOContextMonitorThread {
   /// @param monitor The monitor to call into.
   /// @param probe_interval How often to call monitor->Tick().
   /// @param health_callback Called from the monitor thread after each tick with the
-  ///   health status (true means healthy).
+  ///   aggregate health status (true means healthy).
   IOContextMonitorThread(std::unique_ptr<IOContextMonitor> monitor,
                          absl::Duration probe_interval,
                          std::function<void(bool healthy)> health_callback);

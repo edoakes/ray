@@ -207,7 +207,7 @@ TEST_F(IOContextMonitorTest, DoesNotAccumulateProbesOnStuckContext) {
   EXPECT_EQ(handlers_run, 1);
 }
 
-TEST(IOContextMonitorThreadTest, CallbackAndShutdown) {
+TEST(IOContextMonitorThreadTest, InvokesHealthCallbackAndShutsDown) {
   InstrumentedIOContextWithThread ctx("test_ctx");
   observability::FakeGauge latency_gauge;
   observability::FakeGauge health_gauge;
@@ -220,15 +220,19 @@ TEST(IOContextMonitorThreadTest, CallbackAndShutdown) {
       absl::Seconds(5));
 
   std::atomic<int> callback_count{0};
+  std::atomic<bool> last_healthy{false};
   IOContextMonitorThread thread(
-      std::move(monitor), absl::Milliseconds(50), [&callback_count](bool healthy) {
+      std::move(monitor), absl::Milliseconds(50), [&](bool healthy) {
+        last_healthy.store(healthy);
         callback_count.fetch_add(1);
       });
 
   thread.Start();
+  // The responsive io_context should be reported healthy across probe cycles.
   while (callback_count.load() < 2) {
     absl::SleepFor(absl::Milliseconds(1));
   }
+  EXPECT_TRUE(last_healthy.load());
   thread.Stop();
 
   ctx.Stop();
