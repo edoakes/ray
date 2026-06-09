@@ -15,6 +15,7 @@
 #pragma once
 
 #include <array>
+#include <stdexcept>
 #include <string_view>
 #include <type_traits>
 
@@ -103,7 +104,7 @@ struct GcsServerIOContextPolicy {
       }
     }
     // Throwing in constexpr context leads to a compile error.
-    throw "Value not found in kAllDedicatedIOContexts";
+    throw std::out_of_range("Value not found in kAllDedicatedIOContexts");
   }
 };
 
