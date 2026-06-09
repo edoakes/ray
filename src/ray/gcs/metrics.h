@@ -192,7 +192,8 @@ inline ray::stats::Gauge GetIoContextMonitorHealthGaugeMetric() {
   return ray::stats::Gauge{
       /*name=*/"io_context_monitor_health",
       /*description=*/
-      "Health of this io_context as determined by the io context monitor probes (1 if healthy, 0 otherwise).",
+      "Health of this io_context as determined by the io context monitor probes (1 if "
+      "healthy, 0 otherwise).",
       /*unit=*/"",
       /*tag_keys=*/{"Name"},
   };
