@@ -56,6 +56,10 @@ class GcsServerTest : public ::testing::Test {
             fake_scheduler_placement_time_ms_histogram_,
             /*health_check_rpc_latency_ms_histogram=*/
             fake_health_check_rpc_latency_ms_histogram_,
+            /*io_context_monitor_latency_ms_gauge=*/
+            fake_io_context_monitor_latency_ms_gauge_,
+            /*io_context_monitor_health_gauge=*/
+            fake_io_context_monitor_health_gauge_,
         } {
     TestSetupUtil::StartUpRedisServers(std::vector<int>());
   }
@@ -297,6 +301,8 @@ class GcsServerTest : public ::testing::Test {
   observability::FakeGauge fake_resource_usage_gauge_;
   observability::FakeHistogram fake_scheduler_placement_time_ms_histogram_;
   observability::FakeHistogram fake_health_check_rpc_latency_ms_histogram_;
+  observability::FakeGauge fake_io_context_monitor_latency_ms_gauge_;
+  observability::FakeGauge fake_io_context_monitor_health_gauge_;
 
   // Fake metrics struct
   gcs::GcsServerMetrics fake_metrics_;

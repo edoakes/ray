@@ -34,7 +34,7 @@ class IOContextMonitorTest : public ::testing::Test {
                             clock_);
   }
 
-  double GetLatency(const std::string &ctx_name) {
+  double GetLatencyGaugeValue(const std::string &ctx_name) {
     for (const auto &[tags, value] : latency_gauge_.GetTagToValue()) {
       auto it = tags.find("Name");
       if (it != tags.end() && it->second == ctx_name) {
@@ -44,7 +44,7 @@ class IOContextMonitorTest : public ::testing::Test {
     return -1;
   }
 
-  double GetHealth(const std::string &ctx_name) {
+  double GetHealthGaugeValue(const std::string &ctx_name) {
     for (const auto &[tags, value] : health_gauge_.GetTagToValue()) {
       auto it = tags.find("Name");
       if (it != tags.end() && it->second == ctx_name) {
@@ -66,7 +66,7 @@ TEST_F(IOContextMonitorTest, ProbeSucceeds) {
   monitor.Tick();
   ctx.poll();
   EXPECT_TRUE(monitor.Tick());
-  EXPECT_GE(GetLatency("ctx"), 0);
+  EXPECT_GE(GetLatencyGaugeValue("ctx"), 0);
 }
 
 TEST_F(IOContextMonitorTest, DetectsStuckIOContext) {
@@ -74,15 +74,15 @@ TEST_F(IOContextMonitorTest, DetectsStuckIOContext) {
   auto monitor = MakeMonitor("test", {{"stuck", &stuck_ctx}}, absl::Milliseconds(100));
 
   EXPECT_TRUE(monitor.Tick());
-  EXPECT_EQ(GetHealth("stuck"), 1);
+  EXPECT_EQ(GetHealthGaugeValue("stuck"), 1);
   clock_->AdvanceTime(absl::Milliseconds(200));
   EXPECT_FALSE(monitor.Tick());
-  EXPECT_EQ(GetHealth("stuck"), 0);
+  EXPECT_EQ(GetHealthGaugeValue("stuck"), 0);
 
   // Additional ticks should keep it unhealthy.
   clock_->AdvanceTime(absl::Milliseconds(200));
   monitor.Tick();
-  EXPECT_EQ(GetHealth("stuck"), 0);
+  EXPECT_EQ(GetHealthGaugeValue("stuck"), 0);
 }
 
 TEST_F(IOContextMonitorTest, HealthyWithinDeadline) {
@@ -99,23 +99,22 @@ TEST_F(IOContextMonitorTest, LagNotRecordedWhileOutstanding) {
   auto monitor = MakeMonitor("test", {{"ctx", &ctx}});
 
   monitor.Tick();
-  EXPECT_EQ(GetLatency("ctx"), -1);
+  EXPECT_EQ(GetLatencyGaugeValue("ctx"), -1);
 
   monitor.Tick();
-  EXPECT_EQ(GetLatency("ctx"), -1);
+  EXPECT_EQ(GetLatencyGaugeValue("ctx"), -1);
 
   ctx.poll();
   monitor.Tick();
-  EXPECT_GE(GetLatency("ctx"), 0);
+  EXPECT_GE(GetLatencyGaugeValue("ctx"), 0);
 }
 
 TEST_F(IOContextMonitorTest, ExcludedContextDoesNotAffectHealth) {
   instrumented_io_context healthy_ctx;
   instrumented_io_context stuck_ctx;
 
-  // The stuck context is excluded from the health check, so even when it blows
-  // past the deadline the aggregate verdict stays healthy. Its metrics are
-  // still recorded.
+  // The stuck context is excluded from the health check, so even if its probe
+  // misses the deadline the aggregate health bool should remain `true`.
   auto monitor =
       MakeMonitor("test",
                   {{"healthy", &healthy_ctx, /*include_in_health_check=*/true},
@@ -127,9 +126,9 @@ TEST_F(IOContextMonitorTest, ExcludedContextDoesNotAffectHealth) {
   clock_->AdvanceTime(absl::Milliseconds(200));
 
   EXPECT_TRUE(monitor.Tick());
-  EXPECT_EQ(GetHealth("healthy"), 1);
-  // The excluded context is still probed and reported as unhealthy.
-  EXPECT_EQ(GetHealth("excluded"), 0);
+  EXPECT_EQ(GetHealthGaugeValue("healthy"), 1);
+  // The excluded context should still be probed and reported as unhealthy.
+  EXPECT_EQ(GetHealthGaugeValue("excluded"), 0);
 }
 
 TEST_F(IOContextMonitorTest, MultipleIOContexts) {
@@ -145,9 +144,9 @@ TEST_F(IOContextMonitorTest, MultipleIOContexts) {
   clock_->AdvanceTime(absl::Milliseconds(200));
 
   EXPECT_FALSE(monitor.Tick());
-  EXPECT_GE(GetLatency("healthy"), 0);
-  EXPECT_EQ(GetHealth("healthy"), 1);
-  EXPECT_EQ(GetHealth("stuck"), 0);
+  EXPECT_GE(GetLatencyGaugeValue("healthy"), 0);
+  EXPECT_EQ(GetHealthGaugeValue("healthy"), 1);
+  EXPECT_EQ(GetHealthGaugeValue("stuck"), 0);
 
   // Unblock the stuck context.
   stuck_ctx.poll();
@@ -174,8 +173,8 @@ TEST_F(IOContextMonitorTest, CompletionPastDeadlineMarksUnhealthy) {
 
   // Tick 2 observes a completed probe whose lag (200ms) is past the deadline.
   EXPECT_FALSE(monitor.Tick());
-  EXPECT_EQ(GetHealth("ctx"), 0);
-  EXPECT_GE(GetLatency("ctx"), 200);
+  EXPECT_EQ(GetHealthGaugeValue("ctx"), 0);
+  EXPECT_GE(GetLatencyGaugeValue("ctx"), 200);
 }
 
 TEST_F(IOContextMonitorTest, LateCompletionDoesNotRestoreHealth) {
