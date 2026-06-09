@@ -15,6 +15,7 @@
 #include <grpcpp/grpcpp.h>
 
 #include <chrono>
+#include <future>
 #include <memory>
 #include <optional>
 #include <string>
@@ -582,20 +583,21 @@ TEST_F(GcsServerTest, HealthCheckReflectsMainIOContextHealth) {
   ASSERT_TRUE(WaitForHealthStatus(grpc::health::v1::HealthCheckResponse::SERVING,
                                   std::chrono::seconds(10)));
 
-  // Stop the main io_context. The IOContextMonitor's probe to it stops
-  // completing, and once it exceeds the healthy deadline the monitor flips the
-  // gRPC serving status to NOT_SERVING. Note the health check itself still
-  // responds (it runs on gRPC's own threads), it just reports unhealthy.
-  io_service_.stop();
-  thread_io_service_->join();
-  thread_io_service_.reset();
+  // Block the main io_context by occupying its (single-threaded) event loop with a
+  // task that waits until released. The IOContextMonitor's probe can no longer
+  // complete, so once it exceeds the healthy deadline the GCS reports NOT_SERVING.
+  // The health check itself still responds since it runs on gRPC's own threads.
+  // We block rather than stop the io_context so it keeps running on its original
+  // thread (GCS components are pinned to it via thread checkers).
+  std::promise<void> release;
+  std::future<void> released = release.get_future();
+  io_service_.post([&released]() { released.wait(); }, "BlockMainIOContextForTest");
+
   EXPECT_TRUE(WaitForHealthStatus(grpc::health::v1::HealthCheckResponse::NOT_SERVING,
                                   std::chrono::seconds(30)));
 
-  // Restart the main io_context. Probes complete again and the monitor flips the
-  // serving status back to SERVING.
-  io_service_.restart();
-  StartMainIOServiceThread();
+  // Release the io_context; probes complete again and the GCS recovers to SERVING.
+  release.set_value();
   EXPECT_TRUE(WaitForHealthStatus(grpc::health::v1::HealthCheckResponse::SERVING,
                                   std::chrono::seconds(30)));
 }
