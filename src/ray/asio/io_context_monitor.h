@@ -36,9 +36,8 @@ struct MonitoredIOContext {
   instrumented_io_context *io_context;
   /// If true, this io_context's health contributes to the aggregate health
   /// returned by Tick(). If false, the io_context is still probed and its
-  /// metrics are still recorded, but it does not affect the aggregate verdict.
-  /// Callers use this to exclude non-critical (e.g. observability) event loops
-  /// from the serving-health determination.
+  /// metrics are still recorded, but it does not affect the aggregate health.
+  /// Callers use this to exclude non-critical event loops from the health check.
   bool include_in_health_check = true;
 };
 
