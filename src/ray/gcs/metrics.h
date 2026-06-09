@@ -182,7 +182,7 @@ inline ray::stats::Gauge GetIoContextMonitorLatencyMsGaugeMetric() {
   return ray::stats::Gauge{
       /*name=*/"io_context_monitor_latency_ms",
       /*description=*/
-      "Latency of the most recent io_context monitor probe (post to execution), in ms.",
+      "Latency of the most recent probe on this io context.",
       /*unit=*/"ms",
       /*tag_keys=*/{"Name"},
   };
@@ -192,7 +192,7 @@ inline ray::stats::Gauge GetIoContextMonitorHealthGaugeMetric() {
   return ray::stats::Gauge{
       /*name=*/"io_context_monitor_health",
       /*description=*/
-      "Health of each monitored io_context (1 if healthy, 0 otherwise).",
+      "Health of this io_context as determined by the io context monitor probes (1 if healthy, 0 otherwise).",
       /*unit=*/"",
       /*tag_keys=*/{"Name"},
   };

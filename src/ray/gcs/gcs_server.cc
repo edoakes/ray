@@ -423,14 +423,11 @@ void GcsServer::InitIOContextMonitor() {
   monitored_io_contexts.push_back({"gcs_server_main_io_context",
                                    &io_context_provider_.GetDefaultIOContext(),
                                    /*include_in_health_check=*/true});
-  // The dedicated io_contexts are indexed identically to the policy metadata, so
-  // we can zip them together to pick up each context's health-check flag.
   const auto &dedicated_io_contexts = io_context_provider_.GetAllDedicatedIOContexts();
-  for (size_t i = 0; i < dedicated_io_contexts.size(); ++i) {
-    monitored_io_contexts.push_back(
-        {dedicated_io_contexts[i]->GetName(),
-         &dedicated_io_contexts[i]->GetIoService(),
-         GcsServerIOContextPolicy::kAllDedicatedIOContexts[i].used_for_health_check});
+  for (const auto &dedicated_io_context : dedicated_io_contexts) {
+    monitored_io_contexts.push_back({dedicated_io_context->GetName(),
+                                     &dedicated_io_context->GetIoService(),
+                                     dedicated_io_context->UsedForHealthCheck()});
   }
 
   auto monitor = std::make_unique<IOContextMonitor>(
