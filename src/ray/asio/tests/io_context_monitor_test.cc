@@ -25,11 +25,8 @@ class IOContextMonitorTest : public ::testing::Test {
  protected:
   IOContextMonitor MakeMonitor(std::vector<MonitoredIOContext> io_contexts,
                                absl::Duration deadline = absl::Seconds(5)) {
-    return IOContextMonitor(std::move(io_contexts),
-                            latency_gauge_,
-                            health_gauge_,
-                            deadline,
-                            clock_);
+    return IOContextMonitor(
+        std::move(io_contexts), latency_gauge_, health_gauge_, deadline, clock_);
   }
 
   double GetLatencyGaugeValue(const std::string &ctx_name) {
