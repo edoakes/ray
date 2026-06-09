@@ -37,7 +37,8 @@ IOContextMonitor::IOContextMonitor(std::string component_name,
       health_gauge_(health_gauge) {
   for (auto &io_context : io_contexts) {
     RAY_CHECK(io_context.io_context != nullptr)
-        << "MonitoredIOContext '" << io_context.name << "' has a null io_context pointer.";
+        << "MonitoredIOContext '" << io_context.name
+        << "' has a null io_context pointer.";
     probe_states_.push_back(
         std::make_shared<ProbeState>(std::move(io_context.name),
                                      *io_context.io_context,
