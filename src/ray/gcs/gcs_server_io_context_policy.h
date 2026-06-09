@@ -36,10 +36,9 @@ struct IOContextMetadata {
   std::string_view name;
   /// Whether to enable the asio lag probe on this io_context.
   bool enable_lag_probe;
-  /// Whether this io_context's health contributes to the GCS serving-health
-  /// determination. Non-critical io_contexts (e.g. observability event export
-  /// and observability pubsub) are excluded so that backpressure there does not
-  /// mark the GCS as unhealthy.
+  /// Whether this io_context's health contributes to whether the GCS health
+  /// check returns SERVING or NOT_SERVING.
+  /// Non-critical io_contexts (e.g., observability event export) are excluded.
   bool used_for_health_check;
 };
 
