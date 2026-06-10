@@ -135,8 +135,7 @@ TEST_F(IOContextMonitorTest, ExportsWindowedMaxLatency) {
 TEST_F(IOContextMonitorTest, WindowedMaxDropsAfterEviction) {
   instrumented_io_context ctx;
   // Use a short window so the first probe's latency is evicted quickly.
-  auto monitor =
-      MakeMonitor({{"ctx", &ctx}}, absl::Seconds(5), absl::Milliseconds(30));
+  auto monitor = MakeMonitor({{"ctx", &ctx}}, absl::Seconds(5), absl::Milliseconds(30));
 
   // First probe takes 100ms; recorded at t0+100ms.
   monitor.Tick();

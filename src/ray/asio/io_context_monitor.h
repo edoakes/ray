@@ -62,14 +62,13 @@ class IOContextMonitor {
   ///   tracked and exported.
   /// @param clock Clock to use for time. Defaults to a real clock. Inject a
   ///   FakeClock in tests for deterministic behavior.
-  IOContextMonitor(
-      std::vector<MonitoredIOContext> io_contexts,
-      observability::MetricInterface &latency_gauge,
-      observability::MetricInterface &unhealthy_counter,
-      absl::Duration healthy_deadline,
-      absl::Duration latency_window = absl::Milliseconds(
-          RayConfig::instance().io_context_monitor_latency_window_ms()),
-      std::shared_ptr<ClockInterface> clock = std::make_shared<Clock>());
+  IOContextMonitor(std::vector<MonitoredIOContext> io_contexts,
+                   observability::MetricInterface &latency_gauge,
+                   observability::MetricInterface &unhealthy_counter,
+                   absl::Duration healthy_deadline,
+                   absl::Duration latency_window = absl::Milliseconds(
+                       RayConfig::instance().io_context_monitor_latency_window_ms()),
+                   std::shared_ptr<ClockInterface> clock = std::make_shared<Clock>());
 
   /// Run one probe cycle: check previous probes, emit metrics/logs, post new probes.
   /// Returns true iff all io_contexts with include_in_health_check set are healthy.
