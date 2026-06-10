@@ -158,7 +158,9 @@ python/ray/runtime_env/
 ;
 
 python/
-@ ml tune train data
+# Serve and Data run on Python/Cython changes (their step tags are serve/data, not
+# the broad `python` tag), so that a C++-only (src/) change does not trigger them.
+@ ml tune train data serve
 # Python changes might impact cross language stack in Java.
 # Java also depends on Python CLI to manage processes.
 @ python dashboard linux_wheels macos_wheels java
