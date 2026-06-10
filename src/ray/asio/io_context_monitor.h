@@ -23,7 +23,9 @@
 #include "absl/synchronization/mutex.h"
 #include "absl/time/time.h"
 #include "ray/asio/instrumented_io_context.h"
+#include "ray/common/ray_config.h"
 #include "ray/observability/metric_interface.h"
+#include "ray/observability/windowed_metric.h"
 #include "ray/util/clock.h"
 
 namespace ray {
@@ -49,19 +51,25 @@ struct MonitoredIOContext {
 class IOContextMonitor {
  public:
   /// @param io_contexts io_contexts to monitor. Must outlive the monitor.
-  /// @param latency_gauge Gauge metric for the most recent probe latency (ms),
-  ///   tagged by "Name".
-  /// @param health_gauge Gauge metric for the current health status (1 if
-  ///   healthy, 0 otherwise), tagged by "Name".
+  /// @param latency_gauge Gauge metric for the max probe latency (ms) observed over
+  ///   the latency window, tagged by "Name". Only re-exported when the windowed max
+  ///   changes.
+  /// @param unhealthy_counter Counter metric incremented by 1 each time a probe
+  ///   misses the healthy deadline, tagged by "Name".
   /// @param healthy_deadline If a probe has been outstanding longer than this, the
   ///   io_context is considered unhealthy.
+  /// @param latency_window Sliding window over which the max probe latency is
+  ///   tracked and exported.
   /// @param clock Clock to use for time. Defaults to a real clock. Inject a
   ///   FakeClock in tests for deterministic behavior.
-  IOContextMonitor(std::vector<MonitoredIOContext> io_contexts,
-                   observability::MetricInterface &latency_gauge,
-                   observability::MetricInterface &health_gauge,
-                   absl::Duration healthy_deadline,
-                   std::shared_ptr<ClockInterface> clock = std::make_shared<Clock>());
+  IOContextMonitor(
+      std::vector<MonitoredIOContext> io_contexts,
+      observability::MetricInterface &latency_gauge,
+      observability::MetricInterface &unhealthy_counter,
+      absl::Duration healthy_deadline,
+      absl::Duration latency_window = absl::Milliseconds(
+          RayConfig::instance().io_context_monitor_latency_window_ms()),
+      std::shared_ptr<ClockInterface> clock = std::make_shared<Clock>());
 
   /// Run one probe cycle: check previous probes, emit metrics/logs, post new probes.
   /// Returns true iff all io_contexts with include_in_health_check set are healthy.
@@ -72,11 +80,13 @@ class IOContextMonitor {
     ProbeState(std::string name_val,
                instrumented_io_context &io_context_val,
                bool include_in_health_check_val,
-               std::shared_ptr<ClockInterface> clock_val)
+               std::shared_ptr<ClockInterface> clock_val,
+               absl::Duration latency_window_duration)
         : name(std::move(name_val)),
           io_context(io_context_val),
           include_in_health_check(include_in_health_check_val),
-          clock(std::move(clock_val)) {}
+          clock(std::move(clock_val)),
+          latency_window(latency_window_duration) {}
 
     const std::string name;
     instrumented_io_context &io_context;
@@ -94,6 +104,8 @@ class IOContextMonitor {
     absl::Time probe_post_time = absl::InfinitePast();
     bool healthy = true;
     bool deadline_warning_logged = false;
+    // Sliding window of recent probe latencies; only accessed from the monitor.
+    observability::WindowedMetric latency_window;
   };
 
   bool ProcessProbe(const std::shared_ptr<ProbeState> &probe);
@@ -103,7 +115,7 @@ class IOContextMonitor {
   const absl::Duration healthy_deadline_;
   const std::shared_ptr<ClockInterface> clock_;
   observability::MetricInterface &latency_gauge_;
-  observability::MetricInterface &health_gauge_;
+  observability::MetricInterface &unhealthy_counter_;
   std::vector<std::shared_ptr<ProbeState>> probe_states_;
 };
 
