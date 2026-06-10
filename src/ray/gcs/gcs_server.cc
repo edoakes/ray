@@ -420,7 +420,7 @@ void GcsServer::InitGcsHealthCheckManager(const GcsInitData &gcs_init_data) {
 void GcsServer::InitIOContextMonitor() {
   std::vector<MonitoredIOContext> monitored_io_contexts;
   // The main io_context always contributes to the health check.
-  monitored_io_contexts.push_back({"main_io_context",
+  monitored_io_contexts.push_back({"gcs_server_main_io_context",
                                    &io_context_provider_.GetDefaultIOContext(),
                                    /*include_in_health_check=*/true});
   const auto &dedicated_io_contexts = io_context_provider_.GetAllDedicatedIOContexts();
