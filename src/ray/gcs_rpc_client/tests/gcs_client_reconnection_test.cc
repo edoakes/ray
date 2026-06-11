@@ -69,6 +69,10 @@ class GcsClientReconnectionTest : public ::testing::Test {
         scheduler_placement_time_ms_histogram_,
         /*health_check_rpc_latency_ms_histogram=*/
         fake_health_check_rpc_latency_ms_histogram_,
+        /*io_context_monitor_latency_ms_gauge=*/
+        fake_io_context_monitor_latency_ms_gauge_,
+        /*io_context_monitor_health_gauge=*/
+        fake_io_context_monitor_health_gauge_,
     };
 
     gcs_server_ = std::make_unique<gcs::GcsServer>(
@@ -205,6 +209,8 @@ class GcsClientReconnectionTest : public ::testing::Test {
   observability::FakeGauge fake_resource_usage_gauge_;
   observability::FakeHistogram scheduler_placement_time_ms_histogram_;
   observability::FakeHistogram fake_health_check_rpc_latency_ms_histogram_;
+  observability::FakeGauge fake_io_context_monitor_latency_ms_gauge_;
+  observability::FakeGauge fake_io_context_monitor_health_gauge_;
 
   // GCS client.
   std::unique_ptr<std::thread> client_io_service_thread_;
