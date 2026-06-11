@@ -29,7 +29,7 @@ steps:
   - label: "llm cpu tests"
     key: "llm-cpu-tests"
     tags:
-      - python
+      - core_python
       - llm
       - cpu
     instance_type: medium

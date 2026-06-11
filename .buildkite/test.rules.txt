@@ -14,7 +14,7 @@
 #   ;  # Semicolon to separate rules
 
 ! always lint
-! python cpp core_cpp java workflow cgraphs_direct_transport dashboard
+! core_python cpp core_cpp java workflow cgraphs_direct_transport dashboard
 ! ray_client runtime_env_container
 ! data dask serve ml tune train train_gpu llm rllib rllib_gpu rllib_directly
 ! linux_wheels macos_wheels docker doc python_dependencies min_build tools
@@ -92,7 +92,7 @@ ci/docker/serve.build.Dockerfile
 ;
 
 python/ray/dashboard/
-@ dashboard linux_wheels python
+@ dashboard linux_wheels core_python
 ;
 
 # The macOS smoke test installs this specific lock file
@@ -119,7 +119,7 @@ ci/raydepsets/configs/docs.depsets.yaml
 python/deplocks/
 ci/raydepsets/configs/
 @ ml tune train serve workflow data min_build
-@ python dashboard linux_wheels java
+@ core_python dashboard linux_wheels java
 @ python_dependencies
 ;
 
@@ -129,7 +129,7 @@ python/requirements_compiled.txt
 python/requirements_compiled_py*
 python/requirements/
 @ ml tune train serve workflow data min_build
-@ python dashboard linux_wheels macos_wheels java
+@ core_python dashboard linux_wheels macos_wheels java
 @ python_dependencies
 ;
 
@@ -138,23 +138,23 @@ python/ray/experimental/channel/
 python/ray/experimental/rdt/
 python/ray/experimental/collective/
 python/ray/tests/rdt/
-@ python cgraphs_direct_transport
+@ core_python cgraphs_direct_transport
 ;
 
 python/ray/util/client/
-@ python ray_client
+@ core_python ray_client
 ;
 
 python/ray/util/dask/
-@ python dask
+@ core_python dask
 ;
 
 python/ray/util/spark/
-@ python spark_on_ray
+@ core_python spark_on_ray
 ;
 
 python/ray/runtime_env/
-@ python runtime_env_container
+@ core_python runtime_env_container
 ;
 
 python/
@@ -163,11 +163,11 @@ python/
 @ ml tune train data serve
 # Python changes might impact cross language stack in Java.
 # Java also depends on Python CLI to manage processes.
-@ python dashboard linux_wheels macos_wheels java
+@ core_python dashboard linux_wheels macos_wheels java
 ;
 
 .buildkite/core.rayci.yml
-@ python core_cpp
+@ core_python core_cpp
 ;
 
 java/
@@ -294,7 +294,7 @@ src/ray/core_worker/experimental*.cc
 
 src/
 @ core_cpp cpp
-@ java python linux_wheels macos_wheels
+@ java core_python linux_wheels macos_wheels
 @ dashboard release_tests
 ;
 
@@ -315,6 +315,6 @@ setup_hooks.sh
 
 *
 @ ml tune train data serve
-@ core_cpp cpp java python doc
+@ core_cpp cpp java core_python doc
 @ linux_wheels macos_wheels dashboard tools release_tests
 ;
