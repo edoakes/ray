@@ -38,13 +38,11 @@ python/deplocks/llm/*.lock
 python/ray/llm/
 doc/source/llm/
 doc/source/data/doc_code/working-with-llms/
-.buildkite/llm.rayci.yml
 ci/docker/llm.build.Dockerfile
 @ llm
 ;
 
 python/ray/data/
-.buildkite/data.rayci.yml
 ci/docker/data.build.Dockerfile
 ci/docker/data.build.wanda.yaml
 ci/docker/datan.build.wanda.yaml
@@ -65,7 +63,6 @@ python/ray/train/
 @ ml train train_gpu linux_wheels
 ;
 
-.buildkite/ml.rayci.yml
 ci/docker/ml.build.wanda.yaml
 ci/docker/mllightning2gpu.build.wanda.yaml
 ci/docker/ml.build.Dockerfile
@@ -81,12 +78,10 @@ ci/docker/min.build.wanda.yaml
 rllib/
 python/ray/rllib/
 ci/ray_ci/rllib.tests.yml
-.buildkite/rllib.rayci.yml
 @ rllib rllib_gpu rllib_directly
 ;
 
 python/ray/serve/
-.buildkite/serve.rayci.yml
 ci/docker/serve.build.Dockerfile
 @ serve linux_wheels java
 ;
@@ -171,12 +166,10 @@ python/
 ;
 
 java/
-.buildkite/others.rayci.yml
 @ java
 ;
 
 cpp/
-.buildkite/pipeline.build_cpp.yml
 @ cpp
 ;
 
