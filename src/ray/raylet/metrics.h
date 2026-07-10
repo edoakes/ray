@@ -222,5 +222,26 @@ inline ray::stats::Gauge GetLocalResourceViewNodeCountGaugeMetric() {
   };
 }
 
+inline ray::stats::Gauge GetIoContextMonitorLatencyMsGaugeMetric() {
+  return ray::stats::Gauge{
+      /*name=*/"io_context_monitor_latency_ms",
+      /*description=*/
+      "Latency of the most recent probe on this io context.",
+      /*unit=*/"ms",
+      /*tag_keys=*/{"Name"},
+  };
+}
+
+inline ray::stats::Count GetIoContextMonitorUnhealthyCountMetric() {
+  return ray::stats::Count{
+      /*name=*/"io_context_monitor_unhealthy_count",
+      /*description=*/
+      "Number of times this io_context was marked unhealthy by the io context monitor "
+      "(i.e. a probe exceeded the healthy deadline).",
+      /*unit=*/"",
+      /*tag_keys=*/{"Name"},
+  };
+}
+
 }  // namespace raylet
 }  // namespace ray

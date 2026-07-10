@@ -193,6 +193,8 @@ NodeManager::NodeManager(
     ray::observability::MetricInterface &memory_manager_worker_eviction_total_count,
     ray::observability::MetricInterface
         &node_manager_unexpected_worker_failure_total_count,
+    ray::observability::MetricInterface &io_context_monitor_latency_ms_gauge,
+    ray::observability::MetricInterface &io_context_monitor_unhealthy_counter,
     ClockInterface &clock)
     : self_node_id_(self_node_id),
       self_node_name_(std::move(self_node_name)),
@@ -274,10 +276,34 @@ NodeManager::NodeManager(
   node_manager_server_.RegisterService(std::make_unique<syncer::RaySyncerService>(
       ray_syncer_, ray::rpc::AuthenticationTokenLoader::instance().GetToken()));
   node_manager_server_.Run();
-  // GCS will check the health of the service named with the node id.
-  // Fail to setup this will lead to the health check failure.
-  node_manager_server_.GetServer().GetHealthCheckService()->SetServingStatus(
-      self_node_id_.Hex(), true);
+  // Monitor the raylet's main io_context and drive the gRPC health check serving
+  // status accordingly. The GCS checks the health of the service named with the node
+  // ID, so if the main event loop becomes stuck (probes exceed the healthy deadline)
+  // the health check will report NOT_SERVING. Started after the RPC server is running
+  // (GetHealthCheckService() is only valid once the server is built).
+  {
+    std::vector<MonitoredIOContext> monitored_io_contexts;
+    monitored_io_contexts.push_back({"raylet_main_io_context",
+                                     &io_service_,
+                                     /*include_in_health_check=*/true});
+    auto monitor = std::make_unique<IOContextMonitor>(
+        std::move(monitored_io_contexts),
+        io_context_monitor_latency_ms_gauge,
+        io_context_monitor_unhealthy_counter,
+        absl::Milliseconds(
+            RayConfig::instance().io_context_monitor_healthy_deadline_ms()));
+    io_context_monitor_thread_ = std::make_unique<IOContextMonitorThread>(
+        std::move(monitor),
+        absl::Milliseconds(RayConfig::instance().io_context_monitor_probe_interval_ms()),
+        [this](bool healthy) {
+          // Drive the gRPC health check serving status. Called from the monitor
+          // thread; SetServingStatus is thread-safe. GCS checks the health of the
+          // service named with the node id.
+          node_manager_server_.GetServer().GetHealthCheckService()->SetServingStatus(
+              self_node_id_.Hex(), healthy);
+        });
+    io_context_monitor_thread_->Start();
+  }
   worker_pool_.SetNodeManagerPort(GetServerPort());
 
   dashboard_agent_manager_ = CreateDashboardAgentManager(self_node_id, config);

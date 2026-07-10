@@ -360,6 +360,10 @@ int main(int argc, char *argv[]) {
       ray::raylet::GetMemoryManagerWorkerEvictionTotalCountMetric();
   ray::stats::Count node_manager_unexpected_worker_failure_total_count =
       ray::raylet::GetNodeManagerUnexpectedWorkerFailureTotalCountMetric();
+  ray::stats::Gauge io_context_monitor_latency_ms_gauge =
+      ray::raylet::GetIoContextMonitorLatencyMsGaugeMetric();
+  ray::stats::Count io_context_monitor_unhealthy_counter =
+      ray::raylet::GetIoContextMonitorUnhealthyCountMetric();
   ray::stats::Gauge scheduler_tasks_gauge = ray::raylet::GetSchedulerTasksGaugeMetric();
   ray::stats::Gauge scheduler_unscheduleable_tasks_gauge =
       ray::raylet::GetSchedulerUnscheduleableTasksGaugeMetric();
@@ -1054,6 +1058,8 @@ int main(int argc, char *argv[]) {
         std::move(socket),
         memory_manager_worker_eviction_total_count,
         node_manager_unexpected_worker_failure_total_count,
+        io_context_monitor_latency_ms_gauge,
+        io_context_monitor_unhealthy_counter,
         clock);
 
     // Initializing stats should be done after the node manager is initialized because

@@ -314,6 +314,7 @@ ray_cc_library(
         ":worker_killing_policy_factory",
         ":worker_killing_policy_interface",
         ":worker_pool",
+        "//src/ray/asio:io_context_monitor",
         "//src/ray/asio:periodical_runner_interface",
         "//src/ray/common:buffer",
         "//src/ray/common:flatbuf_utils",

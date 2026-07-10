@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "ray/asio/instrumented_io_context.h"
+#include "ray/asio/io_context_monitor.h"
 #include "ray/asio/periodical_runner_interface.h"
 #include "ray/common/bundle_spec.h"
 #include "ray/common/cgroup2/cgroup_manager_interface.h"
@@ -183,6 +184,8 @@ class NodeManager : public rpc::NodeManagerServiceHandler,
       ray::observability::MetricInterface &memory_manager_worker_eviction_total_count,
       ray::observability::MetricInterface
           &node_manager_unexpected_worker_failure_total_count,
+      ray::observability::MetricInterface &io_context_monitor_latency_ms_gauge,
+      ray::observability::MetricInterface &io_context_monitor_unhealthy_counter,
       ClockInterface &clock);
 
   void Start(rpc::GcsNodeInfo &&self_node_info);
@@ -1029,6 +1032,14 @@ class NodeManager : public rpc::NodeManagerServiceHandler,
 
   /// The socket to listen on for new clients.
   local_stream_socket socket_;
+
+  /// Monitors the raylet's main io_context on a dedicated thread. The
+  /// health_callback passed into it drives the gRPC health check serving status
+  /// (keyed by this node's ID), so the GCS observes the raylet as unhealthy if the
+  /// main event loop becomes stuck. Declared last so it is stopped/destroyed
+  /// before node_manager_server_ (whose health check service it references) and
+  /// io_service_.
+  std::unique_ptr<IOContextMonitorThread> io_context_monitor_thread_;
 };
 
 }  // namespace ray::raylet

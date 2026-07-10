@@ -462,6 +462,8 @@ class NodeManagerTest : public ::testing::Test {
         boost::asio::basic_stream_socket<local_stream_protocol>(io_service_),
         fake_memory_manager_worker_eviction_total_count_,
         fake_node_manager_unexpected_worker_failure_total_count_,
+        fake_io_context_monitor_latency_ms_gauge_,
+        fake_io_context_monitor_unhealthy_counter_,
         fake_clock_);
   }
 
@@ -504,6 +506,8 @@ class NodeManagerTest : public ::testing::Test {
   ray::observability::FakeCounter fake_memory_manager_worker_eviction_total_count_;
   ray::observability::FakeCounter
       fake_node_manager_unexpected_worker_failure_total_count_;
+  ray::observability::FakeGauge fake_io_context_monitor_latency_ms_gauge_;
+  ray::observability::FakeCounter fake_io_context_monitor_unhealthy_counter_;
 };
 
 TEST_F(NodeManagerTest, HandleIsLocalWorkerDeadUnknownWorker) {
